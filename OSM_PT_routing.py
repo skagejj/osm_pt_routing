@@ -24,7 +24,7 @@
 from qgis.PyQt.QtCore import QSettings, QTranslator, QCoreApplication
 from qgis.PyQt.QtGui import QIcon
 from qgis.PyQt.QtWidgets import QAction
-
+from qgis.core import QgsProperty, QgsVectorLayer, QgsField, QgsProject, edit, QgsExpression, QgsExpressionContext, QgsExpressionContextUtils,QgsCoordinateReferenceSystem, QgsVectorFileWriter, QgsProcessingFeatureSourceDefinition,QgsFeatureRequest
 
 
 # Initialize Qt resources from file resources.py
@@ -194,12 +194,12 @@ class OSMroutingPT:
         # Only create GUI ONCE in callback, so that it will only load when the plugin is started
         if self.first_start == True:
             self.first_start = False
-            self.dlg = OSMroutingPTDialog()
+            self.OSMPTrouting_dialog = OSMroutingPTDialog()
 
         # show the dialog
-        self.dlg.show()
+        self.OSMPTrouting_dialog.show()
         # Run the dialog event loop
-        result = self.dlg.exec_()
+        result = self.OSMPTrouting_dialog.exec_()
         # See if OK was pressed
         if result:
             
@@ -213,7 +213,7 @@ class OSMroutingPT:
             
             
             # create mini trips
-            OSM4rout= pd.read_csv(str(source_output)+'/OSM4routing.csv')
+            OSM4rout= str(source_output)+'/OSM4routing.csv'
 
             XYminiTrips = create_minitrips(OSM4rout,output_fld)
 
@@ -223,7 +223,9 @@ class OSMroutingPT:
             temp_folder_minitrip = os.path.join (source_fld,tempfolder)
             os.makedirs(temp_folder_minitrip)
 
-            shapes = routing(XYminiTrips,CityRoads, temp_folder_minitrip, output_fld)
+            mini_shapes_file = routing(XYminiTrips,CityRoads, temp_folder_minitrip, output_fld)
+            
+            mini_shapes = QgsVectorLayer(mini_shapes_file,"Segments","ogr")
 
-
+            QgsProject.instance().addMapLayer(mini_shapes)
             

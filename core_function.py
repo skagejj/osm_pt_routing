@@ -1,6 +1,6 @@
 # this is where I try to stock all the def of the main OSM_PT_routing.py funcitons
 
-from qgis.core import QgsCoordinateReferenceSystem
+from qgis.core import QgsProperty, QgsVectorLayer, QgsField, QgsProject, edit, QgsExpression, QgsExpressionContext, QgsExpressionContextUtils,QgsCoordinateReferenceSystem, QgsVectorFileWriter, QgsProcessingFeatureSourceDefinition,QgsFeatureRequest
 import pandas as pd
 from qgis import processing
 
@@ -23,17 +23,15 @@ def create_minitrips (OSM4rout_file,output_fld):
         i_row2 += 1
     
     OSM4rout_csv = str(output_fld)+'/OSM4routing_XYminiTrips.csv'
-
-    OSM4rout.to_csv(OSM4rout_csv)
+    OSM4routing = OSM4rout[~OSM4rout['next_lon'].isna()]
+    OSM4routing.to_csv(OSM4rout_csv, index=False )
 
     return OSM4rout_csv
 
 def routing(XYminiTrips,CityRoads, tempfld, output_fld):
     mini_trips_unsorted = pd.read_csv(XYminiTrips)
-    mini_trips = mini_trips_unsorted.sort_values
+    mini_trips = mini_trips_unsorted.sort_values(['line_name','trip','pos']).reset_index(drop=True)
     
-    start_point =  '[EPSG:4326]'
-
     ls_minitrips = []
     i_row = 0
     while i_row < len(mini_trips):
@@ -55,7 +53,7 @@ def routing(XYminiTrips,CityRoads, tempfld, output_fld):
             processing.run("native:shortestpathpointtopoint", params)
             ls_minitrips.append(mini_trip_gpkg) 
         i_row += 1
-    trnsprt_shapes = str(output_fld)+'/shapes.gpkg'
+    trnsprt_shapes = str(output_fld)+'/mini_shapes.gpkg'
     params = {'LAYERS':ls_minitrips,
               'CRS':QgsCoordinateReferenceSystem('EPSG:4326'),
               'OUTPUT':trnsprt_shapes}
