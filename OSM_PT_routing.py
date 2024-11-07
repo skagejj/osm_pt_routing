@@ -25,11 +25,18 @@ from qgis.PyQt.QtCore import QSettings, QTranslator, QCoreApplication
 from qgis.PyQt.QtGui import QIcon
 from qgis.PyQt.QtWidgets import QAction
 
+
+
 # Initialize Qt resources from file resources.py
 from .resources import *
+
+# import functions from core_function.py
+from .core_function import create_minitrips, routing
+
 # Import the code for the dialog
 from .OSM_PT_routing_dialog import OSMroutingPTDialog
 import os.path
+import pandas as pd
 
 
 class OSMroutingPT:
@@ -195,6 +202,28 @@ class OSMroutingPT:
         result = self.dlg.exec_()
         # See if OK was pressed
         if result:
-            # Do something useful here - delete the line containing pass and
-            # substitute with your code.
-            pass
+            
+            # loading the temporary tables and outpust of OSMtocheck Plugin
+
+            source_fld = '/home/luigi/Downloads/881'
+            source_output = '/home/luigi/Downloads/881/output'
+            output_fld = '/home/luigi/Downloads/881/output'
+
+            lines_df = pd.read_csv(str(source_fld)+'/lines_files_list.csv')
+            
+            
+            # create mini trips
+            OSM4rout= pd.read_csv(str(source_output)+'/OSM4routing.csv')
+
+            XYminiTrips = create_minitrips(OSM4rout,output_fld)
+
+            CityRoads = '/home/luigi/Downloads/881/GenevaRoads/GenevaRoads.gpkg'
+            
+            tempfolder = 'mini-trips'
+            temp_folder_minitrip = os.path.join (source_fld,tempfolder)
+            os.makedirs(temp_folder_minitrip)
+
+            shapes = routing(XYminiTrips,CityRoads, temp_folder_minitrip, output_fld)
+
+
+            
