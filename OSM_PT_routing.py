@@ -25,19 +25,19 @@ from qgis.PyQt.QtCore import QSettings, QTranslator, QCoreApplication
 from qgis.PyQt.QtGui import QIcon
 from qgis.PyQt.QtWidgets import QAction
 from qgis.core import QgsProperty, QgsVectorLayer, QgsField, QgsProject, edit, QgsExpression, QgsExpressionContext, QgsExpressionContextUtils,QgsCoordinateReferenceSystem, QgsVectorFileWriter, QgsProcessingFeatureSourceDefinition,QgsFeatureRequest
-
+from qgis import processing
+import os.path
+import pandas as pd
 
 # Initialize Qt resources from file resources.py
 from .resources import *
 
 # import functions from core_function.py
-from .core_function import create_minitrips, routing
+from .core_function import create_minitrips, mini_routing, trips
 
 # Import the code for the dialog
 from .OSM_PT_routing_dialog import OSMroutingPTDialog
 import os.path
-import pandas as pd
-
 
 class OSMroutingPT:
     """QGIS Plugin Implementation."""
@@ -210,12 +210,13 @@ class OSMroutingPT:
             output_fld = '/home/luigi/Downloads/881/output'
 
             lines_df = pd.read_csv(str(source_fld)+'/lines_files_list.csv')
-            
+           
             
             # create mini trips
             OSM4rout= str(source_output)+'/OSM4routing.csv'
 
-            XYminiTrips = create_minitrips(OSM4rout,output_fld)
+            XYminiTrips, lines_trips_csv = create_minitrips(OSM4rout,output_fld,source_fld)
+            
 
             CityRoads = '/home/luigi/Downloads/881/GenevaRoads/GenevaRoads.gpkg'
             
@@ -223,9 +224,21 @@ class OSMroutingPT:
             temp_folder_minitrip = os.path.join (source_fld,tempfolder)
             os.makedirs(temp_folder_minitrip)
 
-            mini_shapes_file = routing(XYminiTrips,CityRoads, temp_folder_minitrip, output_fld)
+            mini_shapes_file = mini_routing(XYminiTrips,CityRoads, temp_folder_minitrip, output_fld)
             
-            mini_shapes = QgsVectorLayer(mini_shapes_file,"Segments","ogr")
+            lines_trips = pd.read_csv(lines_trips_csv)
+            
+            tempfolder = 'lines_trips'
+            temp_folder_linestrip= os.path.join (source_fld,tempfolder)
+            os.makedirs(temp_folder_minitrip)
 
-            QgsProject.instance().addMapLayer(mini_shapes)
+            for idx in lines_trips:
+                trip = lines_trips.loc(idx,'line_trip')
+                trip_gpkg = str(output_fld)+'/'+ str(trip)+'.gpkg'
+                ls_OSMways, selected_csv = trips(mini_shapes_file,trip,trip_gpkg,CityRoads,temp_folder_linestrip)
+                lines_trips.loc(idx,'gpkg') = trip_gpkg
+                lines_trips.loc(idx,'selected_ways') = selected_csv
+                lines_trips.loc(idx,'ls_unique_ways') = ls_OSMways
+                trip_layer = QgsVectorLayer(trip_gpkg,trip,"ogr")
+                QgsProject.instance().addMapLayer(trip_layer)
             
