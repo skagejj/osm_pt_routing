@@ -231,15 +231,6 @@ class OSMroutingPT:
             tempfolder = 'lines_trips'
             temp_folder_linestrip= os.path.join (source_fld,tempfolder)
             os.makedirs(temp_folder_linestrip)
-            # source_fld = '/home/luigi/Downloads/881'
-            # output_fld = '/home/luigi/Downloads/881/output'
-            # lines_trips_csv =  str(source_fld)+'/lines_trips.csv'
-            # lines_trips = pd.read_csv(lines_trips_csv)
-            # mini_shapes_file = str(output_fld)+'/mini_shapes.gpkg'
-            # CityRoads = '/home/luigi/Downloads/881/GenevaRoads/GenevaRoads.gpkg'
-            # tempfolder = 'lines_trips'
-            # temp_folder_linestrip= os.path.join (source_fld,tempfolder)
-
             
             
             idx = 0
