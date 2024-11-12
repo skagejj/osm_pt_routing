@@ -33,13 +33,13 @@ def create_minitrips (OSM4rout_file,output_fld,source_fld):
     lines_trips = pd.DataFrame(ls_lines_trips)
     lines_trips = lines_trips.rename(columns={0:'line_trip'})
     for idx in lines_trips.index:
-        lines_trips.loc[idx,'route_short_name'] = re.findall('[0-9]+'+lines_trips.loc[idx,'line_trip'])[0]
+        lines_trips.loc[idx,'route_short_name'] = re.findall('[0-9]+',lines_trips.loc[idx,'line_trip'])[0]
         if re.findall('[0-9]+_[0-9]+', lines_trips.loc[idx,'line_trip']):
             lines_trips.loc[idx,'line_name'] = re.findall('[a-z]+[0-9]+_[0-9]+',lines_trips.loc[idx,'line_trip'])
         else:
             lines_trips.loc[idx,'line_name'] = re.findall('[a-z]+[0-9]+',lines_trips.loc[idx,'line_trip'])[0]
 
-        lines_trips.loc[idx,'trip'] = re.findall('[0-9]+'+lines_trips.loc[idx,'line_trip'])[-1]
+        lines_trips.loc[idx,'trip'] = re.findall('[0-9]+',lines_trips.loc[idx,'line_trip'])[-1]
     
     lines_trips_csv =  str(source_fld)+'/lines_trips.csv'
 
@@ -86,24 +86,15 @@ def mini_routing(XYminiTrips,CityRoads, tempfld, output_fld):
     return trnsprt_shapes
     
 def trips(mini_shapes_file, trip , trip_gpkg, GenevaRoads_path,temp_folder_linestrip):
-    mini_shapes = QgsVectorLayer(mini_shapes_file,"Segments","ogr")
-    trip_selection =  '"layer" like \''+str(trip)+'%\''
-    parmas =  {'INPUT': mini_shapes,
-                'EXPRESSION':trip_selection,
-                'METHOD':0}
-    processing.run("qgis:selectbyexpression",parmas)
-
-    params = {'INPUT':QgsProcessingFeatureSourceDefinition(mini_shapes,
-                selectedFeaturesOnly=True, 
-                featureLimit=-1, 
-                geometryCheck=QgsFeatureRequest.GeometryAbortOnInvalid),
-                'FIELD':[],
-                'SEPARATE_DISJOINT':False,
-                'OUTPUT':trip_gpkg}
-    processing.run("native:dissolve", params)
-
-    GenevaRoads = QgsVectorLayer(GenevaRoads_path,'GenevaRoads_lines',"ogr")
     
+    to_search = str(trip)+'%'
+    trip_selection =  '"layer" LIKE \''+ str(to_search)+'\''
+    params = {'INPUT':mini_shapes_file,
+            'EXPRESSION':trip_selection,
+            'OUTPUT':trip_gpkg}
+    processing.run("native:extractbyexpression", params)
+    
+    GenevaRoads = QgsVectorLayer(GenevaRoads_path,'GenevaRoads_lines',"ogr")
     trip_layer = QgsVectorLayer(trip_gpkg,trip,"ogr")
     params = {'INPUT':GenevaRoads,
                 'PREDICATE':[1,3,5,6],
@@ -112,8 +103,8 @@ def trips(mini_shapes_file, trip , trip_gpkg, GenevaRoads_path,temp_folder_lines
     processing.run("native:selectbylocation", params)
 
     selected_csv = str(temp_folder_linestrip)+'/'+str(trip)+'_OSMways.csv'
-    QgsVectorFileWriter.writeAsVectorFormat(GenevaRoads,selected_csv,"utf-8",driverName = "CSV",onlySelected=True,attributes=['full_id','osm_id'])
+    QgsVectorFileWriter.writeAsVectorFormat(GenevaRoads,selected_csv,"utf-8",driverName = "CSV",onlySelected=True,attributes=[1,2])
     selected = pd.read_csv(selected_csv)
     ls_OSMways = selected.full_id.unique()
-    
-    return OSMways
+
+    return ls_OSMways, selected_csv

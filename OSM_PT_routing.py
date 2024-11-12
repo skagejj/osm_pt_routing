@@ -230,15 +230,30 @@ class OSMroutingPT:
             
             tempfolder = 'lines_trips'
             temp_folder_linestrip= os.path.join (source_fld,tempfolder)
-            os.makedirs(temp_folder_minitrip)
+            os.makedirs(temp_folder_linestrip)
+            # source_fld = '/home/luigi/Downloads/881'
+            # output_fld = '/home/luigi/Downloads/881/output'
+            # lines_trips_csv =  str(source_fld)+'/lines_trips.csv'
+            # lines_trips = pd.read_csv(lines_trips_csv)
+            # mini_shapes_file = str(output_fld)+'/mini_shapes.gpkg'
+            # CityRoads = '/home/luigi/Downloads/881/GenevaRoads/GenevaRoads.gpkg'
+            # tempfolder = 'lines_trips'
+            # temp_folder_linestrip= os.path.join (source_fld,tempfolder)
 
-            for idx in lines_trips:
-                trip = lines_trips.loc(idx,'line_trip')
+            
+            
+            idx = 0
+            while idx < len(lines_trips):
+                trip = str(lines_trips.loc[idx,'line_trip'])
                 trip_gpkg = str(output_fld)+'/'+ str(trip)+'.gpkg'
+                lines_trips.loc[idx,'gpkg'] = trip_gpkg
                 ls_OSMways, selected_csv = trips(mini_shapes_file,trip,trip_gpkg,CityRoads,temp_folder_linestrip)
-                lines_trips.loc(idx,'gpkg') = trip_gpkg
-                lines_trips.loc(idx,'selected_ways') = selected_csv
-                lines_trips.loc(idx,'ls_unique_ways') = ls_OSMways
+                lines_trips.loc[idx,'selected_ways'] = selected_csv
+                lines_trips.loc[idx,'ls_unique_ways'] = " ".join(ls_OSMways)
                 trip_layer = QgsVectorLayer(trip_gpkg,trip,"ogr")
                 QgsProject.instance().addMapLayer(trip_layer)
+                idx +=1
             
+            os.remove(lines_trips_csv)
+            lines_trips.to_csv(lines_trips_csv, index=False)
+
