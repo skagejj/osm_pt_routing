@@ -6,11 +6,10 @@ from qgis import processing
 from qgis.PyQt.QtCore import QVariant
 import re
 
-
-def create_minitrips (OSM4rout_file,output_fld,source_fld):
+def create_minitrips (OSM4rout_file,OSM4rout_csv, lines_trips_csv ):
     OSM4rout_unsorted = pd.read_csv(OSM4rout_file)
     OSM4rout = OSM4rout_unsorted.sort_values(['line_name','trip','pos']).reset_index(drop=True)
-       
+
     # creation and adding segments
     i_row = 0
     i_row2 = 1
@@ -24,8 +23,7 @@ def create_minitrips (OSM4rout_file,output_fld,source_fld):
             OSM4rout.loc[i_row, 'next_lat'] = OSM4rout.loc[i_row2, 'lat']
         i_row += 1
         i_row2 += 1
-    
-    OSM4rout_csv = str(output_fld)+'/OSM4routing_XYminiTrips.csv'
+   
     OSM4routing = OSM4rout[~OSM4rout['next_lon'].isna()]
     
     # creating dataframe for the lines for the specifc trips
@@ -41,14 +39,12 @@ def create_minitrips (OSM4rout_file,output_fld,source_fld):
 
         lines_trips.loc[idx,'trip'] = re.findall('[0-9]+',lines_trips.loc[idx,'line_trip'])[-1]
     
-    lines_trips_csv =  str(source_fld)+'/lines_trips.csv'
+
 
     OSM4routing.to_csv(OSM4rout_csv, index=False )
     lines_trips.to_csv(lines_trips_csv, index = False)
 
-    return OSM4rout_csv, lines_trips_csv
-
-def mini_routing(XYminiTrips,CityRoads, tempfld, output_fld):
+def mini_routing(XYminiTrips, CityRoads, tempfld, trnsprt_shapes):
     mini_trips_unsorted = pd.read_csv(XYminiTrips)
     mini_trips = mini_trips_unsorted.sort_values(['line_name','trip','pos']).reset_index(drop=True)
     
@@ -74,7 +70,7 @@ def mini_routing(XYminiTrips,CityRoads, tempfld, output_fld):
             processing.run("native:shortestpathpointtopoint", params)
             ls_minitrips.append(mini_trip_gpkg) 
         i_row += 1
-    trnsprt_shapes = str(output_fld)+'/mini_shapes.gpkg'
+    
 
     ls_minitrips
 
@@ -108,3 +104,38 @@ def trips(mini_shapes_file, trip , trip_gpkg, GenevaRoads_path,temp_folder_lines
     ls_OSMways = selected.full_id.unique()
 
     return ls_OSMways, selected_csv
+
+def shape_txt(trip_gpkg,trip_name,shape_csv, trip_vertex_gpkg):
+    processing.run("native:extractvertices", {'INPUT':trip_gpkg,'OUTPUT':trip_vertex_gpkg})
+    
+    trip_vertex_layer = QgsVectorLayer(trip_vertex_gpkg,trip_name,"ogr")
+
+    pr = trip_vertex_layer.dataProvider()
+    pr.addAttributes([QgsField("lon", QVariant.Double),
+                        QgsField("lat", QVariant.Double),
+                        QgsField("line_trip", QVariant.String)])
+    trip_vertex_layer.updateFields()
+
+   
+    expression2 = QgsExpression('$x')
+    expression3 = QgsExpression('$y')
+
+    context = QgsExpressionContext()
+    context.appendScopes(QgsExpressionContextUtils.globalProjectLayerScopes(trip_vertex_layer))
+
+    with edit(trip_vertex_layer):
+        for f in trip_vertex_layer.getFeatures():
+            context.setFeature(f)
+            f['line_trip'] = str(trip_name)
+            f['lon'] = expression2.evaluate(context)
+            f['lat'] = expression3.evaluate(context)
+            trip_vertex_layer.updateFeature(f)
+
+    trip_vertex_layer.commitChanges()
+
+    lstokeep = ['fid','line_trip','lon','lat' ]
+
+    idtokeep = [trip_vertex_layer.fields().indexOf(field_name) for field_name in lstokeep]
+    idtokeep = [index for index in idtokeep if index != -1]
+
+    QgsVectorFileWriter.writeAsVectorFormat(trip_vertex_layer,shape_csv,"utf-8",driverName = "CSV",attributes=idtokeep)

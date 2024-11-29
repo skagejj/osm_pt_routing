@@ -21,7 +21,7 @@
  *                                                                         *
  ***************************************************************************/
 """
-from qgis.PyQt.QtCore import QSettings, QTranslator, QCoreApplication
+from qgis.PyQt.QtCore import QSettings, QTranslator, QCoreApplication, QVariant
 from qgis.PyQt.QtGui import QIcon
 from qgis.PyQt.QtWidgets import QAction
 from qgis.core import QgsProperty, QgsVectorLayer, QgsField, QgsProject, edit, QgsExpression, QgsExpressionContext, QgsExpressionContextUtils,QgsCoordinateReferenceSystem, QgsVectorFileWriter, QgsProcessingFeatureSourceDefinition,QgsFeatureRequest
@@ -33,7 +33,7 @@ import pandas as pd
 from .resources import *
 
 # import functions from core_function.py
-from .core_function import create_minitrips, mini_routing, trips
+from .core_function import create_minitrips, mini_routing, trips, shape_txt
 
 # Import the code for the dialog
 from .OSM_PT_routing_dialog import OSMroutingPTDialog
@@ -50,6 +50,9 @@ class OSMroutingPT:
             application at run time.
         :type iface: QgsInterface
         """
+
+        self.OSMPTrouting_dialog = OSMroutingPTDialog()
+
         # Save reference to the QGIS interface
         self.iface = iface
         # initialize plugin directory
@@ -194,57 +197,162 @@ class OSMroutingPT:
         # Only create GUI ONCE in callback, so that it will only load when the plugin is started
         if self.first_start == True:
             self.first_start = False
-            self.OSMPTrouting_dialog = OSMroutingPTDialog()
-
+       
+       
         # show the dialog
         self.OSMPTrouting_dialog.show()
         # Run the dialog event loop
         result = self.OSMPTrouting_dialog.exec_()
+
+        # load the downloads and output folders
+        dwnldfld = self.OSMPTrouting_dialog.DownloadQgsFolderWidget.filePath()
+
+        outputspath = self.OSMPTrouting_dialog.OutPutQgsFolderWidget.filePath()
+
+
         # See if OK was pressed
         if result:
             
+            temp_folder = 'OSM_data'
+            road_temp_folder = os.path.join(dwnldfld,temp_folder)
+
+            full_roads_name = 'full_city_roads'
+            full_roads_gpgk = str(road_temp_folder)+'/'+str(full_roads_name)+'.gpkg'
+
+            tempfolder = 'temp/temp_OSM_forrouting'
+            temp_OSM_for_routing = os.path.join (dwnldfld,tempfolder)
+
+            OSM4rout_name = 'OSM4routing'
+            OSM4rout_gpkg = str(outputspath)+'/'+str(OSM4rout_name)+'.gpkg'
+            OSM4rout_csv= str(outputspath)+'/'+str(OSM4rout_name)+'.csv'
+
+            OSM4routing_name = 'OSM4routing_XYminiTrips'
+            OSM4routing_csv = str(outputspath)+'/'+str(OSM4routing_name)+'.csv'
+
+            lines_trips_csv =  str(dwnldfld)+'/lines_trips.csv'
+
+            trnsprt_shapes = str(outputspath)+'/mini_shapes.gpkg'
+
+            tempfolder = 'temp/mini-trips'
+            temp_folder_minitrip = os.path.join (dwnldfld,tempfolder)
+
+            tempfolder = 'temp/lines_trips'
+            temp_folder_linestrip= os.path.join (dwnldfld,tempfolder)
+
+            name_folder = 'shapes'
+            shape_folder = os.path.join(outputspath,name_folder)
+
+            trips_done_name = 'trips_done'
+            trips_done_csv = str(temp_folder_linestrip)+'/'+str(trips_done_name)+'.csv'
+
+            if not os.path.exists(shape_folder):
+                os.makedirs(shape_folder)
+            if not os.path.exists(temp_folder_minitrip):
+                os.makedirs(temp_folder_minitrip)
+            if not os.path.exists(temp_folder_linestrip):
+                os.makedirs(temp_folder_linestrip)
+
             # loading the temporary tables and outpust of OSMtocheck Plugin
 
-            source_fld = '/home/luigi/Downloads/881'
-            source_output = '/home/luigi/Downloads/881/output'
-            output_fld = '/home/luigi/Downloads/881/output'
-
-            lines_df = pd.read_csv(str(source_fld)+'/lines_files_list.csv')
-           
             
+
+            ls_files = os.listdir(temp_OSM_for_routing)
+            ls_gpkg_to_run = [file for file in ls_files if ".gpkg" in file]
+
+
+            # to avoid make twice the routing, because the process is time demanding 
+            if os.path.exists(trips_done_csv):
+                gpkg_done_df = pd.read_csv(trips_done_csv)
+                ls_gpkg_done = list(gpkg_done_df.lines_draw_gpkg.unique())
+                ls_to_do = [gpkg for gpkg in ls_gpkg_to_run if gpkg not in ls_gpkg_done ] 
+            else:
+                ls_to_do = ls_gpkg_to_run
+
+            ls_gpkg_df = pd.DataFrame(ls_gpkg_to_run).rename(columns={0:'lines_draw_gpkg'})
+            if os.path.exists(trips_done_csv):
+                os.remove(trips_done_csv)
+            ls_gpkg_df.to_csv(trips_done_csv,index=False)
+
+            layers_to_route = []
+            for to_do in ls_to_do:
+                layers_to_route.append(str(temp_OSM_for_routing)+'/'+str(to_do))
+
+            params = {'LAYERS':layers_to_route,
+                        'CRS':QgsCoordinateReferenceSystem('EPSG:4326'),
+                        'OUTPUT':OSM4rout_gpkg}
+            processing.run("native:mergevectorlayers",params)
+            
+            OSM4rout_layer = QgsVectorLayer(OSM4rout_gpkg,OSM4rout_name,"ogr")
+            ls_fields_name_to_remove = ['lon','lat']
+
+            
+            for field_name in ls_fields_name_to_remove:
+                field_index = OSM4rout_layer.fields().indexFromName(field_name)
+                
+                if field_index != -1:  # Check if the field exists
+                    # Start editing the layer
+                    OSM4rout_layer.startEditing()
+                    
+                    # Remove the field
+                    OSM4rout_layer.deleteAttribute(field_index)
+                    # Save changes and stop editing
+                    OSM4rout_layer.commitChanges()
+                else:
+                    print(f"Field '{field_name}' not found.")
+            
+            pr = OSM4rout_layer.dataProvider()
+            pr.addAttributes([
+                            QgsField("lon", QVariant.Double),
+                            QgsField("lat", QVariant.Double)])
+            OSM4rout_layer.updateFields()
+            
+            expression2 = QgsExpression('$x')
+            expression3 = QgsExpression('$y')
+
+            context = QgsExpressionContext()
+            context.appendScopes(QgsExpressionContextUtils.globalProjectLayerScopes(OSM4rout_layer))
+
+            with edit(OSM4rout_layer):
+                for f in OSM4rout_layer.getFeatures():
+                    context.setFeature(f)
+                    f['lon'] = expression2.evaluate(context)
+                    f['lat'] = expression3.evaluate(context)
+                    OSM4rout_layer.updateFeature(f)
+            OSM4rout_layer.commitChanges()
+
+            os.remove(OSM4rout_csv)
+            QgsVectorFileWriter.writeAsVectorFormat(OSM4rout_layer,OSM4rout_csv,"utf-8",driverName = "CSV")
+
             # create mini trips
-            OSM4rout= str(source_output)+'/OSM4routing.csv'
+            create_minitrips(OSM4rout_csv,OSM4routing_csv, lines_trips_csv)
 
-            XYminiTrips, lines_trips_csv = create_minitrips(OSM4rout,output_fld,source_fld)
-            
-
-            CityRoads = '/home/luigi/Downloads/881/GenevaRoads/GenevaRoads.gpkg'
-            
-            tempfolder = 'mini-trips'
-            temp_folder_minitrip = os.path.join (source_fld,tempfolder)
-            os.makedirs(temp_folder_minitrip)
-
-            mini_shapes_file = mini_routing(XYminiTrips,CityRoads, temp_folder_minitrip, output_fld)
+            mini_routing(OSM4routing_csv,full_roads_gpgk, temp_folder_minitrip, trnsprt_shapes)
             
             lines_trips = pd.read_csv(lines_trips_csv)
-            
-            tempfolder = 'lines_trips'
-            temp_folder_linestrip= os.path.join (source_fld,tempfolder)
-            os.makedirs(temp_folder_linestrip)
-            
-            
+  
             idx = 0
             while idx < len(lines_trips):
                 trip = str(lines_trips.loc[idx,'line_trip'])
-                trip_gpkg = str(output_fld)+'/'+ str(trip)+'.gpkg'
+                trip_gpkg = str(outputspath)+'/'+ str(trip)+'.gpkg'
                 lines_trips.loc[idx,'gpkg'] = trip_gpkg
-                ls_OSMways, selected_csv = trips(mini_shapes_file,trip,trip_gpkg,CityRoads,temp_folder_linestrip)
+                ls_OSMways, selected_csv = trips(trnsprt_shapes,trip,trip_gpkg,full_roads_gpgk,temp_folder_linestrip)
                 lines_trips.loc[idx,'selected_ways'] = selected_csv
                 lines_trips.loc[idx,'ls_unique_ways'] = " ".join(ls_OSMways)
                 trip_layer = QgsVectorLayer(trip_gpkg,trip,"ogr")
                 QgsProject.instance().addMapLayer(trip_layer)
                 idx +=1
-            
+
+
             os.remove(lines_trips_csv)
             lines_trips.to_csv(lines_trips_csv, index=False)
+
+            ls_files = os.listdir(outputspath)
+            ls_trip_to_shape = [file for file in ls_files if ".gpkg" in file]
+
+            for trip_to_shape in ls_trip_to_shape:
+                trip_gpkg = os.path.join(outputspath,trip_to_shape)
+                trip_name = str(trip_to_shape[:-5])
+                trip_vertex_gpkg = str(temp_folder_linestrip)+'/'+str(trip_name)+'_vertex.gpkg'
+                shape_csv = os.path.join(shape_folder,str(trip_name)+'.csv')
+                shape_txt(trip_gpkg,trip_name,shape_csv,trip_vertex_gpkg)
 
