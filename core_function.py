@@ -5,6 +5,7 @@ import pandas as pd
 from qgis import processing
 from qgis.PyQt.QtCore import QVariant
 import re
+import os
 
 def create_minitrips (OSM4rout_file,OSM4rout_csv, lines_trips_csv ):
     OSM4rout_unsorted = pd.read_csv(OSM4rout_file)
@@ -105,7 +106,7 @@ def trips(mini_shapes_file, trip , trip_gpkg, GenevaRoads_path,temp_folder_lines
 
     return ls_OSMways, selected_csv
 
-def shape_txt(trip_gpkg,trip_name,shape_csv, trip_vertex_gpkg):
+def shape_txt(trip_gpkg,trip_name,shape_csv, trip_vertex_gpkg,shape_folder, shapes_txt):
     processing.run("native:extractvertices", {'INPUT':trip_gpkg,'OUTPUT':trip_vertex_gpkg})
     
     trip_vertex_layer = QgsVectorLayer(trip_vertex_gpkg,trip_name,"ogr")
@@ -139,3 +140,20 @@ def shape_txt(trip_gpkg,trip_name,shape_csv, trip_vertex_gpkg):
     idtokeep = [index for index in idtokeep if index != -1]
 
     QgsVectorFileWriter.writeAsVectorFormat(trip_vertex_layer,shape_csv,"utf-8",driverName = "CSV",attributes=idtokeep)
+
+    ls_to_concat = os.listdir(shape_folder)
+
+    shapes = pd.DataFrame()
+
+    for csv in ls_to_concat:
+        trip_csv = os.path.join(shape_folder,csv)
+        trip = pd.read_csv(trip_csv,dtype={'fid':'int'})
+        shapes = pd.concat([shapes,trip],ignore_index=True)
+
+    shapes = shapes.rename(columns = {'fid':'shape_pt_sequence','line_trip':'shape_id','lon':'shape_pt_lon','lat':'shape_pt_lat'})
+
+    
+    if os.path.exists(shapes_txt):
+        os.remove(shapes_txt)
+
+    shapes.to_csv(shapes_txt,index=False)

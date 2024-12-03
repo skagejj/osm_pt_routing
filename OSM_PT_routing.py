@@ -230,6 +230,8 @@ class OSMroutingPT:
             OSM4routing_csv = str(outputspath)+'/'+str(OSM4routing_name)+'.csv'
 
             lines_trips_csv =  str(dwnldfld)+'/lines_trips.csv'
+            
+            shapes_txt = os.path.join(dwnldfld,'shapes.txt')
 
             trnsprt_shapes = str(outputspath)+'/mini_shapes.gpkg'
 
@@ -253,8 +255,6 @@ class OSMroutingPT:
                 os.makedirs(temp_folder_linestrip)
 
             # loading the temporary tables and outpust of OSMtocheck Plugin
-
-            
 
             ls_files = os.listdir(temp_OSM_for_routing)
             ls_gpkg_to_run = [file for file in ls_files if ".gpkg" in file]
@@ -347,12 +347,13 @@ class OSMroutingPT:
             lines_trips.to_csv(lines_trips_csv, index=False)
 
             ls_files = os.listdir(outputspath)
-            ls_trip_to_shape = [file for file in ls_files if ".gpkg" in file]
+            ls_trip_all = [file for file in ls_files if str(file[-5:]) == ".gpkg"]
+            ls_trip_to_shape = [file for file in ls_trip_all if file != 'OSM4routing.gpkg' and file != 'mini_shapes.gpkg']
 
             for trip_to_shape in ls_trip_to_shape:
                 trip_gpkg = os.path.join(outputspath,trip_to_shape)
                 trip_name = str(trip_to_shape[:-5])
                 trip_vertex_gpkg = str(temp_folder_linestrip)+'/'+str(trip_name)+'_vertex.gpkg'
                 shape_csv = os.path.join(shape_folder,str(trip_name)+'.csv')
-                shape_txt(trip_gpkg,trip_name,shape_csv,trip_vertex_gpkg)
+                shape_txt(trip_gpkg,trip_name,shape_csv,trip_vertex_gpkg,shape_folder, shapes_txt)
 
