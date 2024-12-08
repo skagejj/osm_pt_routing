@@ -13,7 +13,7 @@
   <property name="minimumSize">
    <size>
     <width>550</width>
-    <height>300</height>
+    <height>250</height>
    </size>
   </property>
   <property name="maximumSize">
@@ -35,7 +35,7 @@
       <item>
        <widget class="QLabel" name="label">
         <property name="text">
-         <string>Look for the same folder you had for the 1st FlowRide Plugin Downloads:</string>
+         <string>Look for the GFTS Agency Folder where you have the essential GTFS files:</string>
         </property>
        </widget>
       </item>

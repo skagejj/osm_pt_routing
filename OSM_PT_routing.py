@@ -33,7 +33,7 @@ import pandas as pd
 from .resources import *
 
 # import functions from core_function.py
-from .core_function import create_minitrips, mini_routing, trips, shape_txt
+from .core_function import create_minitrips, mini_routing, trips, save_and_stop_editing_layers
 
 # Import the code for the dialog
 from .OSM_PT_routing_dialog import OSMroutingPTDialog
@@ -173,7 +173,7 @@ class OSMroutingPT:
         icon_path = ':/plugins/OSM_PT_routing/icon.png'
         self.add_action(
             icon_path,
-            text=self.tr(u'Routing OSM Public Transports'),
+            text=self.tr(u'2. Routing OSM Public Transports'),
             callback=self.run,
             parent=self.iface.mainWindow())
 
@@ -213,11 +213,18 @@ class OSMroutingPT:
         # See if OK was pressed
         if result:
             
+            all_layers = QgsProject.instance().mapLayers().values()
+            save_and_stop_editing_layers(all_layers)
+
+
             temp_folder = 'OSM_data'
             road_temp_folder = os.path.join(dwnldfld,temp_folder)
 
             full_roads_name = 'full_city_roads'
             full_roads_gpgk = str(road_temp_folder)+'/'+str(full_roads_name)+'.gpkg'
+
+            tram_rails_name = 'OSM_tram'
+            tram_rails_gpgk = str(road_temp_folder)+'/'+str(tram_rails_name)+'.gpkg'
 
             tempfolder = 'temp/temp_OSM_forrouting'
             temp_OSM_for_routing = os.path.join (dwnldfld,tempfolder)
@@ -273,6 +280,7 @@ class OSMroutingPT:
                 os.remove(trips_done_csv)
             ls_gpkg_df.to_csv(trips_done_csv,index=False)
 
+            # merging the layer to route
             layers_to_route = []
             for to_do in ls_to_do:
                 layers_to_route.append(str(temp_OSM_for_routing)+'/'+str(to_do))
@@ -282,20 +290,16 @@ class OSMroutingPT:
                         'OUTPUT':OSM4rout_gpkg}
             processing.run("native:mergevectorlayers",params)
             
+            # recalculate the coordinates of the stop position changed
             OSM4rout_layer = QgsVectorLayer(OSM4rout_gpkg,OSM4rout_name,"ogr")
             ls_fields_name_to_remove = ['lon','lat']
 
-            
             for field_name in ls_fields_name_to_remove:
                 field_index = OSM4rout_layer.fields().indexFromName(field_name)
                 
-                if field_index != -1:  # Check if the field exists
-                    # Start editing the layer
+                if field_index != -1:
                     OSM4rout_layer.startEditing()
-                    
-                    # Remove the field
                     OSM4rout_layer.deleteAttribute(field_index)
-                    # Save changes and stop editing
                     OSM4rout_layer.commitChanges()
                 else:
                     print(f"Field '{field_name}' not found.")
@@ -326,7 +330,8 @@ class OSMroutingPT:
             # create mini trips
             create_minitrips(OSM4rout_csv,OSM4routing_csv, lines_trips_csv)
 
-            mini_routing(OSM4routing_csv,full_roads_gpgk, temp_folder_minitrip, trnsprt_shapes)
+            # routing
+            mini_routing(OSM4routing_csv,full_roads_gpgk, tram_rails_gpgk, temp_folder_minitrip, trnsprt_shapes)
             
             lines_trips = pd.read_csv(lines_trips_csv)
   
@@ -338,22 +343,11 @@ class OSMroutingPT:
                 ls_OSMways, selected_csv = trips(trnsprt_shapes,trip,trip_gpkg,full_roads_gpgk,temp_folder_linestrip)
                 lines_trips.loc[idx,'selected_ways'] = selected_csv
                 lines_trips.loc[idx,'ls_unique_ways'] = " ".join(ls_OSMways)
-                trip_layer = QgsVectorLayer(trip_gpkg,trip,"ogr")
-                QgsProject.instance().addMapLayer(trip_layer)
+                if not QgsProject.instance().mapLayersByName(str(trip)):
+                    trip_layer = QgsVectorLayer(trip_gpkg,trip,"ogr")
+                    QgsProject.instance().addMapLayer(trip_layer)
                 idx +=1
 
 
             os.remove(lines_trips_csv)
             lines_trips.to_csv(lines_trips_csv, index=False)
-
-            ls_files = os.listdir(outputspath)
-            ls_trip_all = [file for file in ls_files if str(file[-5:]) == ".gpkg"]
-            ls_trip_to_shape = [file for file in ls_trip_all if file != 'OSM4routing.gpkg' and file != 'mini_shapes.gpkg']
-
-            for trip_to_shape in ls_trip_to_shape:
-                trip_gpkg = os.path.join(outputspath,trip_to_shape)
-                trip_name = str(trip_to_shape[:-5])
-                trip_vertex_gpkg = str(temp_folder_linestrip)+'/'+str(trip_name)+'_vertex.gpkg'
-                shape_csv = os.path.join(shape_folder,str(trip_name)+'.csv')
-                shape_txt(trip_gpkg,trip_name,shape_csv,trip_vertex_gpkg,shape_folder, shapes_txt)
-
