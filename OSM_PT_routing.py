@@ -24,7 +24,19 @@
 from qgis.PyQt.QtCore import QSettings, QTranslator, QCoreApplication, QVariant
 from qgis.PyQt.QtGui import QIcon
 from qgis.PyQt.QtWidgets import QAction
-from qgis.core import QgsProperty, QgsVectorLayer, QgsField, QgsProject, edit, QgsExpression, QgsExpressionContext, QgsExpressionContextUtils,QgsCoordinateReferenceSystem, QgsVectorFileWriter, QgsProcessingFeatureSourceDefinition,QgsFeatureRequest
+from qgis.core import (QgsProperty, 
+                       QgsVectorLayer, 
+                       QgsField, 
+                       QgsProject, 
+                       edit, 
+                       QgsExpression, 
+                       QgsExpressionContext, 
+                       QgsExpressionContextUtils,
+                       QgsCoordinateReferenceSystem, 
+                       QgsVectorFileWriter, 
+                       QgsProcessingFeatureSourceDefinition,
+                       QgsFeatureRequest
+)
 from qgis import processing
 import os.path
 import pandas as pd
@@ -339,15 +351,15 @@ class OSMroutingPT:
             while idx < len(lines_trips):
                 trip = str(lines_trips.loc[idx,'line_trip'])
                 trip_gpkg = str(outputspath)+'/'+ str(trip)+'.gpkg'
+                trip_csv = str(outputspath)+'/'+ str(trip)+'.csv'
                 lines_trips.loc[idx,'gpkg'] = trip_gpkg
-                ls_OSMways, selected_csv = trips(trnsprt_shapes,trip,trip_gpkg,full_roads_gpgk,temp_folder_linestrip)
-                lines_trips.loc[idx,'selected_ways'] = selected_csv
-                lines_trips.loc[idx,'ls_unique_ways'] = " ".join(ls_OSMways)
+                lines_trips.loc[idx,'csv'] = trip_csv
+                trips(trnsprt_shapes,trip,trip_gpkg, trip_csv)
+                
                 if not QgsProject.instance().mapLayersByName(str(trip)):
                     trip_layer = QgsVectorLayer(trip_gpkg,trip,"ogr")
                     QgsProject.instance().addMapLayer(trip_layer)
                 idx +=1
-
 
             os.remove(lines_trips_csv)
             lines_trips.to_csv(lines_trips_csv, index=False)

@@ -2,8 +2,27 @@
 
 from qgis.core import (QgsVectorLayer, 
                         QgsCoordinateReferenceSystem, 
-                        QgsVectorFileWriter
+                        QgsVectorFileWriter,
+                        QgsField,
+                        QgsExpression,
+                        QgsExpressionContext,
+                        QgsExpressionContextUtils,
+                        edit,
+                        QgsUnitTypes,
+                        QgsProcessingException,
+                        QgsPointXY,
+                        QgsFields,
+                        QgsGeometry,
+                        QgsFeature
+
 )
+
+from qgis.analysis import (QgsVectorLayerDirector,
+                           QgsNetworkDistanceStrategy,
+                           QgsNetworkSpeedStrategy,
+                           QgsGraphBuilder,
+                           QgsGraphAnalyzer)
+
 import pandas as pd
 from qgis import processing
 from qgis.PyQt.QtCore import QVariant
@@ -51,9 +70,9 @@ def create_minitrips (OSM4rout_csv,OSM4routing_csv, lines_trips_csv ):
     for idx in lines_trips.index:
         lines_trips.loc[idx,'route_short_name'] = re.findall('[0-9]+',lines_trips.loc[idx,'line_trip'])[0]
         if re.findall('[0-9]+_[0-9]+', lines_trips.loc[idx,'line_trip']):
-            lines_trips.loc[idx,'line_name'] = re.findall('[a-z]+[0-9]+_[0-9]+',lines_trips.loc[idx,'line_trip'])
+            lines_trips.loc[idx,'line_name'] = re.findall('[a-zA-Z]+[0-9]+_[0-9]+',lines_trips.loc[idx,'line_trip'])
         else:
-            lines_trips.loc[idx,'line_name'] = re.findall('[a-z]+[0-9]+',lines_trips.loc[idx,'line_trip'])[0]
+            lines_trips.loc[idx,'line_name'] = re.findall('[a-zA-Z]+[0-9]+',lines_trips.loc[idx,'line_trip'])[0]
 
         lines_trips.loc[idx,'trip'] = re.findall('[0-9]+',lines_trips.loc[idx,'line_trip'])[-1]
     
@@ -115,7 +134,8 @@ def mini_routing(OSM4routing_csv, full_roads_gpgk, tram_rails_gpgk, tempfld, trn
     
     return trnsprt_shapes
     
-def trips(mini_shapes_file, trip , trip_gpkg, GenevaRoads_path,temp_folder_linestrip):
+
+def trips(mini_shapes_file, trip , trip_gpkg, trip_csv):
     
     to_search = str(trip)+'%'
     trip_selection =  '"layer" LIKE \''+ str(to_search)+'\''
@@ -124,17 +144,48 @@ def trips(mini_shapes_file, trip , trip_gpkg, GenevaRoads_path,temp_folder_lines
             'OUTPUT':trip_gpkg}
     processing.run("native:extractbyexpression", params)
     
-    GenevaRoads = QgsVectorLayer(GenevaRoads_path,'GenevaRoads_lines',"ogr")
     trip_layer = QgsVectorLayer(trip_gpkg,trip,"ogr")
-    params = {'INPUT':GenevaRoads,
-                'PREDICATE':[1,3,5,6],
-                'INTERSECT':trip_layer,
-                'METHOD':0}
-    processing.run("native:selectbylocation", params)
+       
+    pr = trip_layer.dataProvider()
+    pr.addAttributes([
+                    QgsField("dist_stops", QVariant.Double)])
+    trip_layer.updateFields()
+    
+    expression1 = QgsExpression('$length')
 
-    selected_csv = str(temp_folder_linestrip)+'/'+str(trip)+'_OSMways.csv'
-    QgsVectorFileWriter.writeAsVectorFormat(GenevaRoads,selected_csv,"utf-8",driverName = "CSV",onlySelected=True,attributes=[1,2])
-    selected = pd.read_csv(selected_csv)
-    ls_OSMways = selected.full_id.unique()
+    context = QgsExpressionContext()
+    context.appendScopes(QgsExpressionContextUtils.globalProjectLayerScopes(trip_layer))
 
-    return ls_OSMways, selected_csv
+    with edit(trip_layer):
+        for f in trip_layer.getFeatures():
+            context.setFeature(f)
+            f['dist_stops'] = expression1.evaluate(context)
+            trip_layer.updateFeature(f)
+    trip_layer.commitChanges()
+
+    lsto_keep = ['layer','dist_stops','start','end']
+       
+    IDto_delete = [trip_layer.fields().indexOf(field_name) for field_name in lsto_keep]
+    IDto_delete = [index for index in IDto_delete if index != -1]
+    
+    QgsVectorFileWriter.writeAsVectorFormat(trip_layer,trip_csv,"utf-8",driverName = "CSV",attributes=IDto_delete)
+
+    trip_df = pd.read_csv(trip_csv,dtype={'dist_stops':'float'})
+
+    i_row2 = -1
+    i_row = 0
+    while i_row< len(trip_df):
+        line_trip_1st_2nd = str(trip_df.loc[i_row,'layer'])
+        pattern1 = r"^(.*)_"
+        pattern2 = r"(\d+)$"
+        line_trip = re.match(pattern1,line_trip_1st_2nd).group(1)
+        nd2pos = re.search(pattern2,line_trip_1st_2nd).group(1)
+        trip_df.loc[i_row,'seq_stpID'] = str(line_trip)+'_pos'+str(nd2pos)
+        if i_row2 > -1:
+            trip_df.loc[i_row,'shape_dist_traveled'] = trip_df.loc[i_row,'dist_stops'] + trip_df.loc[i_row2,'shape_dist_traveled']
+        else:
+            trip_df.loc[i_row,'shape_dist_traveled'] = trip_df.loc[i_row,'dist_stops']
+        i_row2 += 1
+        i_row += 1
+    
+    trip_df.to_csv(trip_csv, index=False)
