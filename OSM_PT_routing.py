@@ -237,7 +237,13 @@ class OSMroutingPT:
 
             tram_rails_name = 'OSM_tram'
             tram_rails_gpgk = str(road_temp_folder)+'/'+str(tram_rails_name)+'.gpkg'
+            
+            OSM_Regtrain_name = 'OSM_Regtrain'
+            OSM_Regtrain_gpkg = str(road_temp_folder)+'/'+str(OSM_Regtrain_name)+'.gpkg'
 
+            OSM_funicular_name = 'OSM_funicular'
+            OSM_funicular_gpkg = str(road_temp_folder)+'/'+str(OSM_funicular_name)+'.gpkg'
+            
             tempfolder = 'temp/temp_OSM_forrouting'
             temp_OSM_for_routing = os.path.join (dwnldfld,tempfolder)
 
@@ -343,7 +349,7 @@ class OSMroutingPT:
             create_minitrips(OSM4rout_csv,OSM4routing_csv, lines_trips_csv)
 
             # routing
-            mini_routing(OSM4routing_csv,full_roads_gpgk, tram_rails_gpgk, temp_folder_minitrip, trnsprt_shapes)
+            mini_routing(OSM4routing_csv,full_roads_gpgk, tram_rails_gpgk, OSM_Regtrain_gpkg, OSM_funicular_gpkg, temp_folder_minitrip, trnsprt_shapes)
             
             lines_trips = pd.read_csv(lines_trips_csv)
   

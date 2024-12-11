@@ -81,20 +81,47 @@ def create_minitrips (OSM4rout_csv,OSM4routing_csv, lines_trips_csv ):
     OSM4routing.to_csv(OSM4routing_csv, index=False )
     lines_trips.to_csv(lines_trips_csv, index = False)
 
-def mini_routing(OSM4routing_csv, full_roads_gpgk, tram_rails_gpgk, tempfld, trnsprt_shapes):
+def mini_routing(OSM4routing_csv, full_roads_gpgk, tram_rails_gpgk, OSM_Regtrain_gpkg, OSM_funicular_gpkg, tempfld, trnsprt_shapes):
     mini_trips_unsorted = pd.read_csv(OSM4routing_csv)
     mini_trips = mini_trips_unsorted.sort_values(['line_name','trip','pos']).reset_index(drop=True)
     
     ls_minitrips = []
     i_row = 0
-    pattern = '[a-zA-Z]+'
     while i_row < len(mini_trips):
         start_point =  str(mini_trips.loc[i_row,'lon'])+','+str(mini_trips.loc[i_row,'lat'])+' [EPSG:4326]'
         end_point =  str(mini_trips.loc[i_row,'next_lon'])+','+str(mini_trips.loc[i_row,'next_lat'])+' [EPSG:4326]'
         mini_trip_gpkg = str(tempfld)+'/'+str(mini_trips.loc[i_row,'mini_tr_pos'])+'.gpkg'
         if mini_trips.loc[i_row,'mini_tr_pos']:
-            if re.findall(pattern,mini_trips.loc[i_row,'line_name'])[0]=='Tram':
+            if 'Tram' in str(mini_trips.loc[i_row,'line_name']):
                 params = {'INPUT':tram_rails_gpgk,
+                        'STRATEGY':0,
+                        'DIRECTION_FIELD':'',
+                        'VALUE_FORWARD':'',
+                        'VALUE_BACKWARD':'',
+                        'VALUE_BOTH':'','DEFAULT_DIRECTION':2,
+                        'SPEED_FIELD':'',
+                        'DEFAULT_SPEED':50,
+                        'TOLERANCE':0,
+                        'START_POINT':start_point,
+                        'END_POINT':end_point,
+                        'OUTPUT':mini_trip_gpkg}
+                processing.run("native:shortestpathpointtopoint", params)
+            elif 'RegRailServ' in str(mini_trips.loc[i_row,'line_name']):
+                params = {'INPUT':OSM_Regtrain_gpkg,
+                        'STRATEGY':0,
+                        'DIRECTION_FIELD':'',
+                        'VALUE_FORWARD':'',
+                        'VALUE_BACKWARD':'',
+                        'VALUE_BOTH':'','DEFAULT_DIRECTION':2,
+                        'SPEED_FIELD':'',
+                        'DEFAULT_SPEED':50,
+                        'TOLERANCE':0,
+                        'START_POINT':start_point,
+                        'END_POINT':end_point,
+                        'OUTPUT':mini_trip_gpkg}
+                processing.run("native:shortestpathpointtopoint", params)
+            elif 'Funicular' in str(mini_trips.loc[i_row,'line_name']):
+                params = {'INPUT':OSM_funicular_gpkg,
                         'STRATEGY':0,
                         'DIRECTION_FIELD':'',
                         'VALUE_FORWARD':'',
