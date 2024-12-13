@@ -21,9 +21,11 @@
  *                                                                         *
  ***************************************************************************/
 """
+
+from qgis.gui import QgsMapCanvas
 from qgis.PyQt.QtCore import QSettings, QTranslator, QCoreApplication, QVariant
 from qgis.PyQt.QtGui import QIcon
-from qgis.PyQt.QtWidgets import QAction
+from qgis.PyQt.QtWidgets import QAction, QListWidgetItem
 from qgis.core import (QgsProperty, 
                        QgsVectorLayer, 
                        QgsField, 
@@ -35,7 +37,9 @@ from qgis.core import (QgsProperty,
                        QgsCoordinateReferenceSystem, 
                        QgsVectorFileWriter, 
                        QgsProcessingFeatureSourceDefinition,
-                       QgsFeatureRequest
+                       QgsFeatureRequest,
+                       QgsRectangle,
+                       QgsPointXY
 )
 from qgis import processing
 import os.path
@@ -45,7 +49,12 @@ import pandas as pd
 from .resources import *
 
 # import functions from core_function.py
-from .core_function import create_minitrips, mini_routing, trips, save_and_stop_editing_layers
+from .core_function import (create_minitrips, 
+                            mini_routing, 
+                            trips, 
+                            save_and_stop_editing_layers,
+                            if_remove
+)
 
 # Import the code for the dialog
 from .OSM_PT_routing_dialog import OSMroutingPTDialog
@@ -189,9 +198,59 @@ class OSMroutingPT:
             callback=self.run,
             parent=self.iface.mainWindow())
 
+        self.OSMPTrouting_dialog.updateNomRDstopsButton.clicked.connect(self.__updateStopsnmRD)
+
+        self.OSMPTrouting_dialog.ZoomStopButton.clicked.connect(self.__ZoomStop)
+
         # will be set False in run()
         self.first_start = True
+    
+    def __updateStopsnmRD(self):
+        self.OSMPTrouting_dialog.stopsnmRDlistWidget.clear()  # Clear existing items
+        dwnldfld = self.OSMPTrouting_dialog.DownloadQgsFolderWidget.filePath()
+        temp_folder = 'temp/temp_GTFSnomatch'
+        nmRD_folder = os.path.join(dwnldfld,temp_folder)
+        ls_files = os.listdir(nmRD_folder)
+        all_csv = [file for file in ls_files if str(file[-4:]) == ".csv"]
+        NOmatch_RD_ls = [file for file in all_csv if 'NOmatch_RD' in file]
+        to_check = pd.DataFrame()
+        for NOmatch_RD in NOmatch_RD_ls:
+            NOmatch_RD_df = pd.read_csv(str(nmRD_folder)+'/'+str(NOmatch_RD))
+            if not NOmatch_RD_df.empty:
+                to_check = pd.concat([to_check,NOmatch_RD_df], ignore_index=True)
+        to_check_csv = str(nmRD_folder)+'/Stops_NOmatch_RD.csv'
+        if_remove(to_check_csv)
+        to_check.to_csv(to_check_csv,index=False)
+        ls_stop_to_display = to_check.seq_stpID.unique()
+    
+        for stop_to_disp in ls_stop_to_display:
+            self.OSMPTrouting_dialog.stopsnmRDlistWidget.addItem(QListWidgetItem(str(stop_to_disp)))
+        
+        del to_check,NOmatch_RD_ls,all_csv,ls_files
 
+    def __ZoomStop(self):
+        dwnldfld = self.OSMPTrouting_dialog.DownloadQgsFolderWidget.filePath()
+        temp_folder = 'temp/temp_GTFSnomatch'
+        nmRD_folder = os.path.join(dwnldfld,temp_folder)
+        to_check = pd.read_csv(str(nmRD_folder)+'/Stops_NOmatch_RD.csv',index_col='seq_stpID')
+        selected_item = self.OSMPTrouting_dialog.stopsnmRDlistWidget.currentItem().text()
+        print(selected_item)
+        canvas = QgsMapCanvas()
+        canvas.setDestinationCrs(QgsCoordinateReferenceSystem(4326))  # Set CRS to WGS84 (lat/lon)
+
+        latitude = float(to_check.at[selected_item,'stop_lat'])
+        longitude = float(to_check.at[selected_item,'stop_lon'])
+        
+        zoom_level = 0.01
+        rect = QgsRectangle(
+            longitude - zoom_level,
+            latitude - zoom_level,
+            longitude + zoom_level,
+            latitude + zoom_level
+        )
+        canvas.setExtent(rect)
+        canvas.refresh()
+        canvas.show()
 
     def unload(self):
         """Removes the plugin menu item and icon from QGIS GUI."""
@@ -289,13 +348,13 @@ class OSMroutingPT:
             if os.path.exists(trips_done_csv):
                 gpkg_done_df = pd.read_csv(trips_done_csv)
                 ls_gpkg_done = list(gpkg_done_df.lines_draw_gpkg.unique())
-                ls_to_do = [gpkg for gpkg in ls_gpkg_to_run if gpkg not in ls_gpkg_done ] 
+                ls_to_do = [gpkg for gpkg in ls_gpkg_to_run if not gpkg in ls_gpkg_done ] 
             else:
                 ls_to_do = ls_gpkg_to_run
 
             ls_gpkg_df = pd.DataFrame(ls_gpkg_to_run).rename(columns={0:'lines_draw_gpkg'})
-            if os.path.exists(trips_done_csv):
-                os.remove(trips_done_csv)
+            
+            if_remove(trips_done_csv)
             ls_gpkg_df.to_csv(trips_done_csv,index=False)
 
             # merging the layer to route
@@ -303,6 +362,7 @@ class OSMroutingPT:
             for to_do in ls_to_do:
                 layers_to_route.append(str(temp_OSM_for_routing)+'/'+str(to_do))
 
+            if_remove(OSM4rout_gpkg)
             params = {'LAYERS':layers_to_route,
                         'CRS':QgsCoordinateReferenceSystem('EPSG:4326'),
                         'OUTPUT':OSM4rout_gpkg}
@@ -342,7 +402,7 @@ class OSMroutingPT:
                     OSM4rout_layer.updateFeature(f)
             OSM4rout_layer.commitChanges()
 
-            os.remove(OSM4rout_csv)
+            if_remove(OSM4rout_csv)
             QgsVectorFileWriter.writeAsVectorFormat(OSM4rout_layer,OSM4rout_csv,"utf-8",driverName = "CSV")
 
             # create mini trips
@@ -367,5 +427,7 @@ class OSMroutingPT:
                     QgsProject.instance().addMapLayer(trip_layer)
                 idx +=1
 
+            if_remove(trips_done_csv)
+            ls_gpkg_df.to_csv(trips_done_csv,index=False)
             os.remove(lines_trips_csv)
             lines_trips.to_csv(lines_trips_csv, index=False)

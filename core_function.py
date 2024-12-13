@@ -29,6 +29,10 @@ from qgis.PyQt.QtCore import QVariant
 import re
 import os
 
+def if_remove(file_path):
+    if os.path.exists(file_path):
+                os.remove(file_path)
+
 
 def save_and_stop_editing_layers(layers):
     for layer in layers:
@@ -42,16 +46,28 @@ def save_and_stop_editing_layers(layers):
         else:
             print(f"Layer '{layer.name()}' is not in editing mode.")
 
-
+# Debugging the changing in field type in some step before 
 def create_minitrips (OSM4rout_csv,OSM4routing_csv, lines_trips_csv ):
     OSM4rout_unsorted = pd.read_csv(OSM4rout_csv)
+    
+    # Debugging the changing in field type in some step before 
+    if OSM4rout_unsorted.dtypes.pos == 'object':
+        i_row = 0 
+        while i_row<len(OSM4rout_unsorted):
+            if OSM4rout_unsorted.loc[i_row,'pos'] == 'true':
+                OSM4rout_unsorted.loc[i_row,'pos'] = 1
+            if OSM4rout_unsorted.loc[i_row,'pos'] == 'false':
+                OSM4rout_unsorted.loc[i_row,'pos'] = 0
+            i_row +=1
+    
+    OSM4rout_unsorted = OSM4rout_unsorted.astype({'pos': 'int64','trip': 'int64'})
     OSM4rout = OSM4rout_unsorted.sort_values(['line_name','trip','pos']).reset_index(drop=True)
 
+    
     # creation and adding segments
     i_row = 0
-    i_row2 = 1
-    i_max = len(OSM4rout) -1 
-    while i_row < i_max:
+    i_row2 = 1 
+    while i_row2 < len(OSM4rout):
         if OSM4rout.loc[i_row,'pos'] < OSM4rout.loc[i_row2,'pos']:
             OSM4rout.loc[i_row, 'line_trip'] = str(OSM4rout.loc[i_row,'line_name'])+'_trip'+str(OSM4rout.loc[i_row, 'trip'])
             OSM4rout.loc[i_row, 'mini_trip'] = str(OSM4rout.loc[i_row, 'GTFS_stop_id'])+' '+str((OSM4rout.loc[i_row2, 'GTFS_stop_id']))
@@ -67,18 +83,23 @@ def create_minitrips (OSM4rout_csv,OSM4routing_csv, lines_trips_csv ):
     ls_lines_trips = OSM4routing.line_trip.unique()
     lines_trips = pd.DataFrame(ls_lines_trips)
     lines_trips = lines_trips.rename(columns={0:'line_trip'})
-    for idx in lines_trips.index:
-        lines_trips.loc[idx,'route_short_name'] = re.findall('[0-9]+',lines_trips.loc[idx,'line_trip'])[0]
-        if re.findall('[0-9]+_[0-9]+', lines_trips.loc[idx,'line_trip']):
-            lines_trips.loc[idx,'line_name'] = re.findall('[a-zA-Z]+[0-9]+_[0-9]+',lines_trips.loc[idx,'line_trip'])
-        else:
-            lines_trips.loc[idx,'line_name'] = re.findall('[a-zA-Z]+[0-9]+',lines_trips.loc[idx,'line_trip'])[0]
+    pattern = re.compile(r'(?:Bus|RegRailServ|Tram|Funicular|trnsprt)([A-Za-z0-9+]+)_')
+    pattern2 = re.compile(r'^(Bus|RegRailServ|Tram|Funicular|transport)(.*)_[^_]+$')
+    trip_number_pattern = re.compile(r'_trip(\d+)$')
 
-        lines_trips.loc[idx,'trip'] = re.findall('[0-9]+',lines_trips.loc[idx,'line_trip'])[-1]
+    for idx in lines_trips.index:
+        lines_trips.loc[idx,'route_short_name'] = pattern.search(str(lines_trips.loc[idx,'line_trip'])).group(1)
+        
+        transport_type = pattern2.match(str(lines_trips.loc[idx,'line_trip'])).group(1)  
+        bus_code = pattern2.match(str(lines_trips.loc[idx,'line_trip'])).group(2)        
+        lines_trips.loc[idx,'line_name'] = str(transport_type + bus_code)
+        
+        lines_trips.loc[idx,'trip'] = trip_number_pattern.search(str(lines_trips.loc[idx,'line_trip'])).group(1)
     
 
-
+    if_remove(OSM4routing_csv)
     OSM4routing.to_csv(OSM4routing_csv, index=False )
+    if_remove(lines_trips_csv)
     lines_trips.to_csv(lines_trips_csv, index = False)
 
 def mini_routing(OSM4routing_csv, full_roads_gpgk, tram_rails_gpgk, OSM_Regtrain_gpkg, OSM_funicular_gpkg, tempfld, trnsprt_shapes):
@@ -90,9 +111,14 @@ def mini_routing(OSM4routing_csv, full_roads_gpgk, tram_rails_gpgk, OSM_Regtrain
     while i_row < len(mini_trips):
         start_point =  str(mini_trips.loc[i_row,'lon'])+','+str(mini_trips.loc[i_row,'lat'])+' [EPSG:4326]'
         end_point =  str(mini_trips.loc[i_row,'next_lon'])+','+str(mini_trips.loc[i_row,'next_lat'])+' [EPSG:4326]'
+        if start_point == end_point:
+            i_row += 1
+            continue
         mini_trip_gpkg = str(tempfld)+'/'+str(mini_trips.loc[i_row,'mini_tr_pos'])+'.gpkg'
+        print('creating' + str(mini_trips.loc[i_row,'mini_tr_pos']))
         if mini_trips.loc[i_row,'mini_tr_pos']:
             if 'Tram' in str(mini_trips.loc[i_row,'line_name']):
+                if_remove(mini_trip_gpkg)
                 params = {'INPUT':tram_rails_gpgk,
                         'STRATEGY':0,
                         'DIRECTION_FIELD':'',
@@ -107,6 +133,7 @@ def mini_routing(OSM4routing_csv, full_roads_gpgk, tram_rails_gpgk, OSM_Regtrain
                         'OUTPUT':mini_trip_gpkg}
                 processing.run("native:shortestpathpointtopoint", params)
             elif 'RegRailServ' in str(mini_trips.loc[i_row,'line_name']):
+                if_remove(mini_trip_gpkg)
                 params = {'INPUT':OSM_Regtrain_gpkg,
                         'STRATEGY':0,
                         'DIRECTION_FIELD':'',
@@ -121,6 +148,7 @@ def mini_routing(OSM4routing_csv, full_roads_gpgk, tram_rails_gpgk, OSM_Regtrain
                         'OUTPUT':mini_trip_gpkg}
                 processing.run("native:shortestpathpointtopoint", params)
             elif 'Funicular' in str(mini_trips.loc[i_row,'line_name']):
+                if_remove(mini_trip_gpkg)
                 params = {'INPUT':OSM_funicular_gpkg,
                         'STRATEGY':0,
                         'DIRECTION_FIELD':'',
@@ -135,6 +163,7 @@ def mini_routing(OSM4routing_csv, full_roads_gpgk, tram_rails_gpgk, OSM_Regtrain
                         'OUTPUT':mini_trip_gpkg}
                 processing.run("native:shortestpathpointtopoint", params)
             else:
+                if_remove(mini_trip_gpkg)
                 params = {'INPUT':full_roads_gpgk,
                         'STRATEGY':1,
                         'DIRECTION_FIELD':'oneway_routing',
@@ -153,7 +182,7 @@ def mini_routing(OSM4routing_csv, full_roads_gpgk, tram_rails_gpgk, OSM_Regtrain
     
 
     ls_minitrips
-
+    if_remove(trnsprt_shapes)
     params = {'LAYERS':ls_minitrips,
               'CRS':QgsCoordinateReferenceSystem('EPSG:4326'),
               'OUTPUT':trnsprt_shapes}
@@ -166,6 +195,7 @@ def trips(mini_shapes_file, trip , trip_gpkg, trip_csv):
     
     to_search = str(trip)+'%'
     trip_selection =  '"layer" LIKE \''+ str(to_search)+'\''
+    if_remove(trip_gpkg)
     params = {'INPUT':mini_shapes_file,
             'EXPRESSION':trip_selection,
             'OUTPUT':trip_gpkg}
@@ -195,6 +225,7 @@ def trips(mini_shapes_file, trip , trip_gpkg, trip_csv):
     IDto_delete = [trip_layer.fields().indexOf(field_name) for field_name in lsto_keep]
     IDto_delete = [index for index in IDto_delete if index != -1]
     
+    if_remove(trip_csv)
     QgsVectorFileWriter.writeAsVectorFormat(trip_layer,trip_csv,"utf-8",driverName = "CSV",attributes=IDto_delete)
 
     trip_df = pd.read_csv(trip_csv,dtype={'dist_stops':'float'})
@@ -215,4 +246,5 @@ def trips(mini_shapes_file, trip , trip_gpkg, trip_csv):
         i_row2 += 1
         i_row += 1
     
+    if_remove(trip_csv)
     trip_df.to_csv(trip_csv, index=False)
