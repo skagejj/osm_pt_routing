@@ -39,7 +39,7 @@ from qgis.core import (QgsProperty,
                        QgsProcessingFeatureSourceDefinition,
                        QgsFeatureRequest,
                        QgsRectangle,
-                       QgsPointXY
+                       QgsPointXY,
 )
 from qgis import processing
 import os.path
@@ -214,43 +214,46 @@ class OSMroutingPT:
         all_csv = [file for file in ls_files if str(file[-4:]) == ".csv"]
         NOmatch_RD_ls = [file for file in all_csv if 'NOmatch_RD' in file]
         to_check = pd.DataFrame()
+        
         for NOmatch_RD in NOmatch_RD_ls:
             NOmatch_RD_df = pd.read_csv(str(nmRD_folder)+'/'+str(NOmatch_RD))
             if not NOmatch_RD_df.empty:
                 to_check = pd.concat([to_check,NOmatch_RD_df], ignore_index=True)
-        to_check_csv = str(nmRD_folder)+'/Stops_NOmatch_RD.csv'
-        if_remove(to_check_csv)
-        to_check.to_csv(to_check_csv,index=False)
-        ls_stop_to_display = to_check.seq_stpID.unique()
-    
-        for stop_to_disp in ls_stop_to_display:
-            self.OSMPTrouting_dialog.stopsnmRDlistWidget.addItem(QListWidgetItem(str(stop_to_disp)))
+            to_check_csv = str(nmRD_folder)+'/Stops_NOm_RD.csv'
         
-        del to_check,NOmatch_RD_ls,all_csv,ls_files
+        if not to_check.empty:
+            if_remove(to_check_csv)
+            to_check.to_csv(to_check_csv,index=False)
+            ls_stop_to_display = to_check.seq_stpID.unique()
+        
+            for stop_to_disp in ls_stop_to_display:
+                self.OSMPTrouting_dialog.stopsnmRDlistWidget.addItem(QListWidgetItem(str(stop_to_disp)))
+            
+            del to_check,NOmatch_RD_ls,all_csv,ls_files
+        else:
+            self.OSMPTrouting_dialog.stopsnmRDlistWidget.addItem(QListWidgetItem(str('All the stops are on one of the networks (roads\'one or rails\'one)')))
 
     def __ZoomStop(self):
         dwnldfld = self.OSMPTrouting_dialog.DownloadQgsFolderWidget.filePath()
         temp_folder = 'temp/temp_GTFSnomatch'
         nmRD_folder = os.path.join(dwnldfld,temp_folder)
-        to_check = pd.read_csv(str(nmRD_folder)+'/Stops_NOmatch_RD.csv',index_col='seq_stpID')
+        to_check = pd.read_csv(str(nmRD_folder)+'/Stops_NOm_RD.csv',index_col='seq_stpID')
         selected_item = self.OSMPTrouting_dialog.stopsnmRDlistWidget.currentItem().text()
         print(selected_item)
-        canvas = QgsMapCanvas()
-        canvas.setDestinationCrs(QgsCoordinateReferenceSystem(4326))  # Set CRS to WGS84 (lat/lon)
 
+        print (to_check.at[selected_item,'stop_lat'])
+        
         latitude = float(to_check.at[selected_item,'stop_lat'])
         longitude = float(to_check.at[selected_item,'stop_lon'])
-        
-        zoom_level = 0.01
-        rect = QgsRectangle(
-            longitude - zoom_level,
-            latitude - zoom_level,
-            longitude + zoom_level,
-            latitude + zoom_level
-        )
-        canvas.setExtent(rect)
+        target_point = QgsPointXY(longitude, latitude)
+
+        canvas = self.iface.mapCanvas()
+
+        canvas.setCenter(target_point)
+
+        canvas.zoomScale(500)
+
         canvas.refresh()
-        canvas.show()
 
     def unload(self):
         """Removes the plugin menu item and icon from QGIS GUI."""
