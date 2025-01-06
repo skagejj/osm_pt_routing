@@ -92,7 +92,7 @@ class OSMroutingPT:
 
         # Declare instance attributes
         self.actions = []
-        self.menu = self.tr(u'&Ruting OSM Public Transport')
+        self.menu = self.tr(u'&Routing OSM Public Transport')
 
         # Check if plugin was started the first time in current QGIS session
         # Must be set in initGui() to survive plugin reloads
@@ -259,7 +259,7 @@ class OSMroutingPT:
         """Removes the plugin menu item and icon from QGIS GUI."""
         for action in self.actions:
             self.iface.removePluginMenu(
-                self.tr(u'&Ruting OSM Public Transport'),
+                self.tr(u'&Routing OSM Public Transport'),
                 action)
             self.iface.removeToolBarIcon(action)
 
@@ -344,21 +344,25 @@ class OSMroutingPT:
             # loading the temporary tables and outpust of OSMtocheck Plugin
 
             ls_files = os.listdir(temp_OSM_for_routing)
-            ls_gpkg_to_run = [file for file in ls_files if ".gpkg" in file]
-
-
-            # to avoid make twice the routing, because the process is time demanding 
-            if os.path.exists(trips_done_csv):
-                gpkg_done_df = pd.read_csv(trips_done_csv)
-                ls_gpkg_done = list(gpkg_done_df.lines_draw_gpkg.unique())
-                ls_to_do = [gpkg for gpkg in ls_gpkg_to_run if not gpkg in ls_gpkg_done ] 
-            else:
-                ls_to_do = ls_gpkg_to_run
-
-            ls_gpkg_df = pd.DataFrame(ls_gpkg_to_run).rename(columns={0:'lines_draw_gpkg'})
+            ls_to_do = [file for file in ls_files if ".gpkg" in file]
             
-            if_remove(trips_done_csv)
-            ls_gpkg_df.to_csv(trips_done_csv,index=False)
+            #ls_gpkg_to_run = [file for file in ls_files if ".gpkg" in file]
+
+            # strategy changed, in the mini_routing function 
+            # if the path has been already calculated is not considered
+            # # to avoid make twice the routing, because the process is time demanding 
+            # if os.path.exists(trips_done_csv):
+            #     gpkg_done_df = pd.read_csv(trips_done_csv)
+            #     ls_gpkg_done = list(gpkg_done_df.lines_draw_gpkg.unique())
+            #     ls_to_do = [gpkg for gpkg in ls_gpkg_to_run if not gpkg in ls_gpkg_done ] 
+            # else:
+            #     ls_to_do = ls_gpkg_to_run
+
+            ls_gpkg_df = pd.DataFrame(ls_to_do).rename(columns={0:'lines_draw_gpkg'})
+            #ls_gpkg_df = pd.DataFrame(ls_gpkg_to_run).rename(columns={0:'lines_draw_gpkg'})
+
+            # if_remove(trips_done_csv)
+            # ls_gpkg_df.to_csv(trips_done_csv,index=False)
 
             # merging the layer to route
             layers_to_route = []
@@ -408,29 +412,54 @@ class OSMroutingPT:
             if_remove(OSM4rout_csv)
             QgsVectorFileWriter.writeAsVectorFormat(OSM4rout_layer,OSM4rout_csv,"utf-8",driverName = "CSV")
 
+            print('creating mini-trips table')
             # create mini trips
             create_minitrips(OSM4rout_csv,OSM4routing_csv, lines_trips_csv)
 
+            print('Start routing from start to end for each mini-trip')
             # routing
             mini_routing(OSM4routing_csv,full_roads_gpgk, tram_rails_gpgk, OSM_Regtrain_gpkg, OSM_funicular_gpkg, temp_folder_minitrip, trnsprt_shapes)
             
             lines_trips = pd.read_csv(lines_trips_csv)
-  
+            print("now it makes one file for each trip, it will take shorter time")
             idx = 0
             while idx < len(lines_trips):
                 trip = str(lines_trips.loc[idx,'line_trip'])
+                
                 trip_gpkg = str(outputspath)+'/'+ str(trip)+'.gpkg'
                 trip_csv = str(outputspath)+'/'+ str(trip)+'.csv'
                 lines_trips.loc[idx,'gpkg'] = trip_gpkg
                 lines_trips.loc[idx,'csv'] = trip_csv
-                trips(trnsprt_shapes,trip,trip_gpkg, trip_csv)
+                if not os.path.exists(trip_gpkg):
+                    print (str(trip)+'  is merging all its mini-trips')
+                    trips(trnsprt_shapes,trip,trip_gpkg, trip_csv, temp_folder_minitrip)
                 
                 if not QgsProject.instance().mapLayersByName(str(trip)):
                     trip_layer = QgsVectorLayer(trip_gpkg,trip,"ogr")
                     QgsProject.instance().addMapLayer(trip_layer)
                 idx +=1
 
+
+
             if_remove(trips_done_csv)
             ls_gpkg_df.to_csv(trips_done_csv,index=False)
             os.remove(lines_trips_csv)
             lines_trips.to_csv(lines_trips_csv, index=False)
+
+
+
+            ls_files_output = os.listdir(outputspath)
+
+            trip_done = [file for file in ls_files_output if '.gpkg' in file]
+            ls_trips = [file[:-5] for file in trip_done]
+
+            missing = lines_trips[~lines_trips.line_trip.isin(ls_trips)]
+
+            if not missing.empty :
+                i_row = 0
+                while i_row < len(missing):
+                    trip = missing.loc[i_row,'line_trip']
+                    print (str(trip)+' is missing')
+                    i_row +=1
+            else:
+                print ('All Trips are ready for tracing their shape!')

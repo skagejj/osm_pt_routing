@@ -31,7 +31,7 @@
      <property name="title">
       <string>Check the stops outside the network</string>
      </property>
-     <layout class="QGridLayout" name="gridLayout_2">
+     <layout class="QFormLayout" name="formLayout">
       <item row="0" column="0">
        <widget class="QPushButton" name="updateNomRDstopsButton">
         <property name="maximumSize">
@@ -44,6 +44,9 @@
          <string>Download the separate PT stops</string>
         </property>
        </widget>
+      </item>
+      <item row="1" column="0" colspan="2">
+       <widget class="QListWidget" name="stopsnmRDlistWidget"/>
       </item>
       <item row="2" column="1">
        <widget class="QPushButton" name="ZoomStopButton">
@@ -60,9 +63,6 @@
          <string>Zoom on this Stop</string>
         </property>
        </widget>
-      </item>
-      <item row="1" column="0" colspan="2">
-       <widget class="QListWidget" name="stopsnmRDlistWidget"/>
       </item>
      </layout>
     </widget>
@@ -124,7 +124,7 @@
       <item>
        <widget class="QLabel" name="label_2">
         <property name="text">
-         <string>Now the same for the Outputs:</string>
+         <string>Now the same for the Outputs :</string>
         </property>
        </widget>
       </item>
