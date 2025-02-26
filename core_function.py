@@ -28,6 +28,7 @@ from qgis import processing
 from qgis.PyQt.QtCore import QVariant
 import re
 import os
+import time
 
 def if_remove(file_path):
     if os.path.exists(file_path):
@@ -48,7 +49,7 @@ def save_and_stop_editing_layers(layers):
 
 # Debugging the changing in field type in some step before 
 def create_minitrips (OSM4rout_csv,OSM4routing_csv, lines_trips_csv ):
-    OSM4rout_unsorted = pd.read_csv(OSM4rout_csv)
+    OSM4rout_unsorted = pd.read_csv(OSM4rout_csv, dtype = {'trip':int,'pos':int, 'stop_id':str})
     
     # Debugging the changing in field type in some step before 
     if OSM4rout_unsorted.dtypes.pos == 'object':
@@ -112,6 +113,8 @@ def mini_routing(OSM4routing_csv, full_roads_gpgk, tram_rails_gpgk, OSM_Regtrain
 
     mini_trips = mini_trips_to_select[~mini_trips_to_select.mini_tr_pos.isin(ls_mini_trips_done)]
     
+    unique_mini_tr_name = 'uq_mini_trips'
+    unique_mini_tr_csv = os.path.join(tempfld,str(unique_mini_tr_name)+'.csv')
 
     # ls_minitrips = [str(tempfld)+'/'+str(file) for file in ls_mini_tr_gpkg]
 
@@ -119,7 +122,14 @@ def mini_routing(OSM4routing_csv, full_roads_gpgk, tram_rails_gpgk, OSM_Regtrain
         mini_trips = mini_trips.reset_index(drop=True)
         print('There are '+str(len(mini_trips))+' mini-trips to calculate')
         tot = len(mini_trips)
+        total = tot
         i_row = 0
+        n_minitr = 1
+        tm0 = time.time()
+        if os.path.exists(unique_mini_tr_csv):
+            unique_mini_tr = pd.read_csv(unique_mini_tr_csv)
+        else:
+            unique_mini_tr = pd.DataFrame()
         while i_row < len(mini_trips):
             start_point =  str(mini_trips.loc[i_row,'lon'])+','+str(mini_trips.loc[i_row,'lat'])+' [EPSG:4326]'
             end_point =  str(mini_trips.loc[i_row,'next_lon'])+','+str(mini_trips.loc[i_row,'next_lat'])+' [EPSG:4326]'
@@ -127,73 +137,111 @@ def mini_routing(OSM4routing_csv, full_roads_gpgk, tram_rails_gpgk, OSM_Regtrain
                 i_row += 1
                 continue
             mini_trip_gpkg = str(tempfld)+'/'+str(mini_trips.loc[i_row,'mini_tr_pos'])+'.gpkg'
-            print('creating' + str(mini_trips.loc[i_row,'mini_tr_pos']))
             if mini_trips.loc[i_row,'mini_tr_pos']:
-                if 'Tram' in str(mini_trips.loc[i_row,'line_name']):
-                    if_remove(mini_trip_gpkg)
-                    params = {'INPUT':tram_rails_gpgk,
-                            'STRATEGY':0,
-                            'DIRECTION_FIELD':'',
-                            'VALUE_FORWARD':'',
-                            'VALUE_BACKWARD':'',
-                            'VALUE_BOTH':'','DEFAULT_DIRECTION':2,
-                            'SPEED_FIELD':'',
-                            'DEFAULT_SPEED':50,
-                            'TOLERANCE':0,
-                            'START_POINT':start_point,
-                            'END_POINT':end_point,
-                            'OUTPUT':mini_trip_gpkg}
-                    processing.run("native:shortestpathpointtopoint", params)
-                elif 'RegRailServ' in str(mini_trips.loc[i_row,'line_name']):
-                    if_remove(mini_trip_gpkg)
-                    params = {'INPUT':OSM_Regtrain_gpkg,
-                            'STRATEGY':0,
-                            'DIRECTION_FIELD':'',
-                            'VALUE_FORWARD':'',
-                            'VALUE_BACKWARD':'',
-                            'VALUE_BOTH':'','DEFAULT_DIRECTION':2,
-                            'SPEED_FIELD':'',
-                            'DEFAULT_SPEED':50,
-                            'TOLERANCE':0,
-                            'START_POINT':start_point,
-                            'END_POINT':end_point,
-                            'OUTPUT':mini_trip_gpkg}
-                    processing.run("native:shortestpathpointtopoint", params)
-                elif 'Funicular' in str(mini_trips.loc[i_row,'line_name']):
-                    if_remove(mini_trip_gpkg)
-                    params = {'INPUT':OSM_funicular_gpkg,
-                            'STRATEGY':0,
-                            'DIRECTION_FIELD':'',
-                            'VALUE_FORWARD':'',
-                            'VALUE_BACKWARD':'',
-                            'VALUE_BOTH':'','DEFAULT_DIRECTION':2,
-                            'SPEED_FIELD':'',
-                            'DEFAULT_SPEED':50,
-                            'TOLERANCE':0,
-                            'START_POINT':start_point,
-                            'END_POINT':end_point,
-                            'OUTPUT':mini_trip_gpkg}
-                    processing.run("native:shortestpathpointtopoint", params)
-                else:
-                    if_remove(mini_trip_gpkg)
-                    params = {'INPUT':full_roads_gpgk,
-                            'STRATEGY':1,
-                            'DIRECTION_FIELD':'oneway_routing',
-                            'VALUE_FORWARD':'forward',
-                            'VALUE_BACKWARD':'backward',
-                            'VALUE_BOTH':'','DEFAULT_DIRECTION':2,
-                            'SPEED_FIELD':'maxspeed_routing',
-                            'DEFAULT_SPEED':50,
-                            'TOLERANCE':0,
-                            'START_POINT':start_point,
-                            'END_POINT':end_point,
-                            'OUTPUT':mini_trip_gpkg}
-                    processing.run("native:shortestpathpointtopoint", params)
+                i_row_uq_tr = 0
+                IDstr_end_pt = str(start_point)+' '+str(end_point)
+                # check for same mini trip
+                while i_row_uq_tr < len(unique_mini_tr):
+                    if unique_mini_tr.loc[i_row_uq_tr,'IDstr_end_pt'] == IDstr_end_pt:
+                        print('copying ' + str(mini_trips.loc[i_row,'mini_tr_pos'])+ ' from another mini trip')
+                        if n_minitr != 1:
+                            n_minitr = n_minitr - 1
+                        total = total - 1
+                        src = unique_mini_tr.loc[i_row_uq_tr,'mini_tr_path']
+                        if os.name == 'nt':  # Windows
+                            cmd = f'copy "{src}" "{mini_trip_gpkg}"'
+                        else:  # Unix/Linux
+                            cmd = f'cp "{src}" "{mini_trip_gpkg}"'
+                        os.system(cmd)
+                        break
+                    i_row_uq_tr += 1
+                # in absence of the same mini trip
+                if i_row_uq_tr == len(unique_mini_tr):
+                    print('creating ' + str(mini_trips.loc[i_row,'mini_tr_pos']))
+                    unique_mini_tr.loc[i_row_uq_tr,'mini_tr_path'] = mini_trip_gpkg
+                    unique_mini_tr.loc[i_row_uq_tr,'IDstr_end_pt'] = IDstr_end_pt
+                    try:
+                        if 'Tram' in str(mini_trips.loc[i_row,'line_name']):
+                            if_remove(mini_trip_gpkg)
+                            params = {'INPUT':tram_rails_gpgk,
+                                    'STRATEGY':0,
+                                    'DIRECTION_FIELD':'',
+                                    'VALUE_FORWARD':'',
+                                    'VALUE_BACKWARD':'',
+                                    'VALUE_BOTH':'','DEFAULT_DIRECTION':2,
+                                    'SPEED_FIELD':'',
+                                    'DEFAULT_SPEED':50,
+                                    'TOLERANCE':0,
+                                    'START_POINT':start_point,
+                                    'END_POINT':end_point,
+                                    'OUTPUT':mini_trip_gpkg}
+                            processing.run("native:shortestpathpointtopoint", params)
+                        elif 'RegRailServ' in str(mini_trips.loc[i_row,'line_name']):
+                            if_remove(mini_trip_gpkg)
+                            params = {'INPUT':OSM_Regtrain_gpkg,
+                                    'STRATEGY':0,
+                                    'DIRECTION_FIELD':'',
+                                    'VALUE_FORWARD':'',
+                                    'VALUE_BACKWARD':'',
+                                    'VALUE_BOTH':'','DEFAULT_DIRECTION':2,
+                                    'SPEED_FIELD':'',
+                                    'DEFAULT_SPEED':50,
+                                    'TOLERANCE':0,
+                                    'START_POINT':start_point,
+                                    'END_POINT':end_point,
+                                    'OUTPUT':mini_trip_gpkg}
+                            processing.run("native:shortestpathpointtopoint", params)
+                        elif 'Funicular' in str(mini_trips.loc[i_row,'line_name']):
+                            if_remove(mini_trip_gpkg)
+                            params = {'INPUT':OSM_funicular_gpkg,
+                                    'STRATEGY':0,
+                                    'DIRECTION_FIELD':'',
+                                    'VALUE_FORWARD':'',
+                                    'VALUE_BACKWARD':'',
+                                    'VALUE_BOTH':'','DEFAULT_DIRECTION':2,
+                                    'SPEED_FIELD':'',
+                                    'DEFAULT_SPEED':50,
+                                    'TOLERANCE':0,
+                                    'START_POINT':start_point,
+                                    'END_POINT':end_point,
+                                    'OUTPUT':mini_trip_gpkg}
+                            processing.run("native:shortestpathpointtopoint", params)
+                        else:
+                            if_remove(mini_trip_gpkg)
+                            params = {'INPUT':full_roads_gpgk,
+                                    'STRATEGY':1,
+                                    'DIRECTION_FIELD':'oneway_routing',
+                                    'VALUE_FORWARD':'forward',
+                                    'VALUE_BACKWARD':'backward',
+                                    'VALUE_BOTH':'','DEFAULT_DIRECTION':2,
+                                    'SPEED_FIELD':'maxspeed_routing',
+                                    'DEFAULT_SPEED':50,
+                                    'TOLERANCE':0,
+                                    'START_POINT':start_point,
+                                    'END_POINT':end_point,
+                                    'OUTPUT':mini_trip_gpkg}
+                            processing.run("native:shortestpathpointtopoint", params)
+                    except Exception:
+                        os.remove(mini_trip_gpkg)
+                        print('something wrong with '+ str(mini_trips.loc[i_row,'mini_tr_pos']))
+                        break
                 # ls_minitrips.append(mini_trip_gpkg) 
             print('There are '+str(tot)+' mini-trips to calculate')
+            tm1 = time.time()
+            dtm = tm1 - tm0
+            tmtot = dtm/n_minitr * (total) 
+            tmrest = tmtot - dtm
+            hours = int(tmrest/3600) 
+            min = int(int(tmrest/60) - int(tmrest/3600)*60)
+            if hours > 0:
+                print ('    '+str(hours)+' hours and '+str(min)+' minutes left')
+            else:
+                print ('    '+str(min)+' minutes left')
             tot = tot - 1
             i_row += 1
-    
+            n_minitr += 1
+        if_remove(unique_mini_tr_csv)
+        unique_mini_tr.to_csv(unique_mini_tr_csv,index=False)
 
     
     # if_remove(trnsprt_shapes)

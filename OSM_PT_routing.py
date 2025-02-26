@@ -202,56 +202,172 @@ class OSMroutingPT:
 
         self.OSMPTrouting_dialog.ZoomStopButton.clicked.connect(self.__ZoomStop)
 
+        self.open_python_console()
         # will be set False in run()
         self.first_start = True
     
+    def open_python_console(self):
+        """Open the Python console programmatically."""
+        if not self.iface.actionShowPythonDialog().isChecked():
+            self.iface.actionShowPythonDialog().trigger()
+
     def __updateStopsnmRD(self):
+        all_layers = QgsProject.instance().mapLayers().values()
+        save_and_stop_editing_layers(all_layers)
+
         self.OSMPTrouting_dialog.stopsnmRDlistWidget.clear()  # Clear existing items
         dwnldfld = self.OSMPTrouting_dialog.DownloadQgsFolderWidget.filePath()
-        temp_folder = 'temp/temp_GTFSnomatch'
-        nmRD_folder = os.path.join(dwnldfld,temp_folder)
-        ls_files = os.listdir(nmRD_folder)
-        all_csv = [file for file in ls_files if str(file[-4:]) == ".csv"]
-        NOmatch_RD_ls = [file for file in all_csv if 'NOmatch_RD' in file]
-        to_check = pd.DataFrame()
-        
-        for NOmatch_RD in NOmatch_RD_ls:
-            NOmatch_RD_df = pd.read_csv(str(nmRD_folder)+'/'+str(NOmatch_RD))
-            if not NOmatch_RD_df.empty:
-                to_check = pd.concat([to_check,NOmatch_RD_df], ignore_index=True)
-            to_check_csv = str(nmRD_folder)+'/Stops_NOm_RD.csv'
-        
-        if not to_check.empty:
+        folder_OSM = 'OSM_data'
+        road_temp_folder = os.path.join(dwnldfld,folder_OSM )
+
+        temp_folder = 'zoom_nmRD'
+        nmRD_temp_folder = os.path.join(dwnldfld,temp_folder )
+
+        full_roads_name = 'full_city_roads'
+        full_roads_gpgk = str(road_temp_folder)+'/'+str(full_roads_name)+'.gpkg'
+
+        OSMallroad_name = 'OSMallroad'
+        OSMallroad_gpkg = os.path.join(nmRD_temp_folder,str(OSMallroad_name)+'.gpkg')
+
+        tram_rails_name = 'OSM_tram'
+        tram_rails_gpgk = str(road_temp_folder)+'/'+str(tram_rails_name)+'.gpkg'
+
+        OSM_Regtrain_name = 'OSM_Regtrain'
+        OSM_Regtrain_gpkg = str(road_temp_folder)+'/'+str(OSM_Regtrain_name)+'.gpkg'
+
+        OSM_funicular_name = 'OSM_funicular'
+        OSM_funicular_gpkg = str(road_temp_folder)+'/'+str(OSM_funicular_name)+'.gpkg'
+
+        if not os.path.exists(nmRD_temp_folder):
+            os.mkdir(nmRD_temp_folder)
+
+        if not os.path.exists(OSMallroad_gpkg):
+            ls_roads= []
+            if os.path.exists(full_roads_gpgk):
+                ls_roads.append(full_roads_gpgk)
+            if os.path.exists(tram_rails_gpgk):
+                ls_roads.append(tram_rails_gpgk)
+            if os.path.exists(OSM_Regtrain_gpkg):
+                ls_roads.append(OSM_Regtrain_gpkg)
+            if os.path.exists(OSM_funicular_gpkg):
+                ls_roads.append(OSM_funicular_gpkg)
+            params = {'LAYERS':ls_roads,
+                'CRS':QgsCoordinateReferenceSystem('EPSG:4326'),
+                'OUTPUT':OSMallroad_gpkg}
+            processing.run("native:mergevectorlayers",params)
+
+        tempfolder = 'temp/temp_OSM_forrouting'
+        temp_OSM_for_routing = os.path.join (dwnldfld,tempfolder)
+
+        allstops_name = 'ALLstops'
+        allstops_gpkg = os.path.join(nmRD_temp_folder, str(allstops_name)+'.gpkg')
+        allstops_csv = os.path.join(nmRD_temp_folder, str(allstops_name)+'.csv')
+
+        nmRD_stops_name = 'nmRD_stops'
+        nmRD_stops_csv= os.path.join(nmRD_temp_folder, str(nmRD_stops_name)+'.csv')
+
+        ls_files = os.listdir(temp_OSM_for_routing)
+        ls_to_check = [file for file in ls_files if ".gpkg" in file]
+                    
+
+        allstops_to_check = pd.DataFrame()
+        for to_check in ls_to_check:
+            to_check_name = to_check[:-5]
+            to_check_gpkg = os.path.join(temp_OSM_for_routing,to_check)
+            to_check_csv = os.path.join(nmRD_temp_folder,str(to_check_name)+'.csv')
+            to_check_layer = QgsVectorLayer(to_check_gpkg,to_check_name,"ogr")
+            ls_fields_name_to_remove = ['lon','lat']
+            
+            for field_name in ls_fields_name_to_remove:
+                field_index = to_check_layer.fields().indexFromName(field_name)
+                if field_index != -1:
+                    to_check_layer.startEditing()
+                    to_check_layer.deleteAttribute(field_index)
+                    to_check_layer.commitChanges()
+                else:
+                    print(f"Field '{field_name}' not found.")
+            
+            pr = to_check_layer.dataProvider()
+            pr.addAttributes([
+                QgsField("lon", QVariant.Double),
+                QgsField("lat", QVariant.Double)])
+            to_check_layer.updateFields()
+            to_check_layer.commitChanges()
+            
+            expression2 = QgsExpression('$x')
+            expression3 = QgsExpression('$y')
+            
+            context = QgsExpressionContext()
+            context.appendScopes(QgsExpressionContextUtils.globalProjectLayerScopes(to_check_layer))
+            
+            with edit(to_check_layer):
+                for f in to_check_layer.getFeatures():
+                    context.setFeature(f)
+                    f['lon'] = expression2.evaluate(context)
+                    f['lat'] = expression3.evaluate(context)
+                    to_check_layer.updateFeature(f)
+            
             if_remove(to_check_csv)
-            to_check.to_csv(to_check_csv,index=False)
+            QgsVectorFileWriter.writeAsVectorFormat(to_check_layer,to_check_csv,"utf-8",driverName = "CSV")
+            df_to_check = pd.read_csv(to_check_csv,dtype = {'trip':int,'pos':int,'stop_id':str})
+            if not df_to_check.empty:
+                allstops_to_check = pd.concat([allstops_to_check,df_to_check], ignore_index=True)
+
+        allstops_to_check.to_csv(allstops_csv,index = False)
+
+        allstops_path = r"file:///{}?crs={}&delimiter={}&xField={}&yField={}".format(allstops_csv,"epsg:4326", ",", "lon", "lat")
+        allstops_layer = QgsVectorLayer(allstops_path,allstops_name,"delimitedtext")
+            
+        param = {'INPUT':allstops_layer,
+            'REFERENCE':OSMallroad_gpkg,
+            'DISTANCE': 0.0000001,
+            'METHOD':0}
+        processing.run("native:selectwithindistance", param)
+
+        allstops_layer.invertSelection()
+
+        QgsVectorFileWriter.writeAsVectorFormat(allstops_layer,nmRD_stops_csv,"utf-8",driverName = "CSV",onlySelected=True)
+
+        to_check = pd.read_csv(nmRD_stops_csv,dtype = {'trip':int,'pos':int,'stop_id':str})
+
+        if not to_check.empty:
+            i_row = 0
+            while i_row < len(to_check):
+                to_check.loc[i_row,"seq_stpID"] = str(to_check.loc[i_row,"line_name"])+'_trip'+str(to_check.loc[i_row,"trip"])+'_pos'+str(to_check.loc[i_row,"pos"])
+                i_row += 1
+            
             ls_stop_to_display = to_check.seq_stpID.unique()
-        
+
             for stop_to_disp in ls_stop_to_display:
                 self.OSMPTrouting_dialog.stopsnmRDlistWidget.addItem(QListWidgetItem(str(stop_to_disp)))
-            
-            del to_check,NOmatch_RD_ls,all_csv,ls_files
+            if_remove(nmRD_stops_csv)
+            to_check.to_csv(nmRD_stops_csv)
         else:
             self.OSMPTrouting_dialog.stopsnmRDlistWidget.addItem(QListWidgetItem(str('All the stops are on one of the networks (roads\'one or rails\'one)')))
-
+    
     def __ZoomStop(self):
         dwnldfld = self.OSMPTrouting_dialog.DownloadQgsFolderWidget.filePath()
-        temp_folder = 'temp/temp_GTFSnomatch'
-        nmRD_folder = os.path.join(dwnldfld,temp_folder)
-        to_check = pd.read_csv(str(nmRD_folder)+'/Stops_NOm_RD.csv',index_col='seq_stpID')
+        temp_folder = 'zoom_nmRD'
+        nmRD_temp_folder = os.path.join(dwnldfld,temp_folder )
+        nmRD_stops_name = 'nmRD_stops'
+        
+        nmRD_stops_csv= os.path.join(nmRD_temp_folder, str(nmRD_stops_name)+'.csv')
+
+        to_check = pd.read_csv(nmRD_stops_csv,index_col='seq_stpID')
         selected_item = self.OSMPTrouting_dialog.stopsnmRDlistWidget.currentItem().text()
         print(selected_item)
 
-        print (to_check.at[selected_item,'stop_lat'])
+        print (to_check.at[selected_item,'lat'])
         
-        latitude = float(to_check.at[selected_item,'stop_lat'])
-        longitude = float(to_check.at[selected_item,'stop_lon'])
+        latitude = float(to_check.at[selected_item,'lat'])
+        longitude = float(to_check.at[selected_item,'lon'])
         target_point = QgsPointXY(longitude, latitude)
 
         canvas = self.iface.mapCanvas()
 
         canvas.setCenter(target_point)
 
-        canvas.zoomScale(500)
+        canvas.zoomScale(50)
 
         canvas.refresh()
 
@@ -367,7 +483,7 @@ class OSMroutingPT:
             # merging the layer to route
             layers_to_route = []
             for to_do in ls_to_do:
-                layers_to_route.append(str(temp_OSM_for_routing)+'/'+str(to_do))
+                layers_to_route.append(str(temp_OSM_for_routing)+'/'+str(to_do)+'|layername='+str(to_do[:-5]))
 
             if_remove(OSM4rout_gpkg)
             params = {'LAYERS':layers_to_route,
