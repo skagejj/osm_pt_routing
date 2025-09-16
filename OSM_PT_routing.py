@@ -44,6 +44,7 @@ from qgis.core import (QgsProperty,
 from qgis import processing
 import os.path
 import pandas as pd
+from PyQt5.QtWidgets import QMessageBox
 
 # Initialize Qt resources from file resources.py
 from .resources import *
@@ -402,6 +403,14 @@ class OSMroutingPT:
 
         # See if OK was pressed
         if result:
+
+            msg = QMessageBox()
+            msg.setIcon(QMessageBox.Information)
+            # setting message for Message Box
+            msg.setText("The \'OSM PT routing\' is in progress wait until the message box is closed")
+            # setting Message box window title
+            msg.setWindowTitle("!! wait the next message \'OSM PT routing\' is in progress !!")
+            msg.show()
             
             all_layers = QgsProject.instance().mapLayers().values()
             save_and_stop_editing_layers(all_layers)
@@ -579,3 +588,11 @@ class OSMroutingPT:
                     i_row +=1
             else:
                 print ('All Trips are ready for tracing their shape!')
+            
+            msg.close()
+
+            msg2 = QMessageBox()
+            msg2.setIcon(QMessageBox.Information)
+            msg2.setText("Check the path if they are right, \neventually you can change them, \nbefore running \'3. GTFS shapes Tracer\' plugin")
+            msg2.setWindowTitle("Done !")
+            msg2.exec_()
