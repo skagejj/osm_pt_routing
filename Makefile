@@ -38,13 +38,13 @@ LOCALES =
 # translation
 SOURCES = \
 	__init__.py \
-	OSM_PT_routing.py OSM_PT_routing_dialog.py
+	OSM_PT_routing.py OSM_PT_routing_dialog.py core_function.py
 
 PLUGINNAME = OSM_PT_routing
 
 PY_FILES = \
 	__init__.py \
-	OSM_PT_routing.py OSM_PT_routing_dialog.py
+	OSM_PT_routing.py OSM_PT_routing_dialog.py core_function.py
 
 UI_FILES = OSM_PT_routing_dialog_base.ui
 

@@ -88,14 +88,13 @@ def build_network_graph(network_file, strategy=0, direction_field='', speed_fiel
         raise Exception(f"Invalid network layer: {network_file}")
     
     # Créer le directeur de réseau
+    # QgsVectorLayerDirector(layer, directionFieldIndex, forwardValue, backwardValue, bothValue, defaultDirection)
     director = QgsVectorLayerDirector(network_layer, -1, '', '', '', 3)
     
     # Configurer la stratégie
     if strategy == 1:  # Speed strategy
-        if speed_field:
-            director.addStrategy(QgsNetworkSpeedStrategy(speed_field, default_speed))
-        else:
-            director.addStrategy(QgsNetworkSpeedStrategy(default_speed))
+        # QgsNetworkSpeedStrategy prend seulement la vitesse par défaut
+        director.addStrategy(QgsNetworkSpeedStrategy(default_speed))
     else:  # Distance strategy
         director.addStrategy(QgsNetworkDistanceStrategy())
     
@@ -125,13 +124,17 @@ def find_shortest_path_cached(graph_data, start_point, end_point):
     start_coords = start_point.split(',')
     end_coords = end_point.split(',')
     
-    start_vertex = director.findVertex(QgsPointXY(float(start_coords[0]), float(start_coords[1])))
-    end_vertex = director.findVertex(QgsPointXY(float(end_coords[0]), float(end_coords[1])))
+    start_point_xy = QgsPointXY(float(start_coords[0]), float(start_coords[1]))
+    end_point_xy = QgsPointXY(float(end_coords[0]), float(end_coords[1]))
+    
+    # Trouver les sommets les plus proches
+    start_vertex = director.findVertex(start_point_xy)
+    end_vertex = director.findVertex(end_point_xy)
     
     if start_vertex == -1 or end_vertex == -1:
         return None
     
-    # Calculer le plus court chemin
+    # Calculer le plus court chemin avec Dijkstra
     tree, cost = QgsGraphAnalyzer.dijkstra(graph, start_vertex, 0)
     
     if tree[end_vertex] == -1:
@@ -154,34 +157,39 @@ def save_graph_to_file(graph_data, output_file):
     if not path_vertices:
         return False
     
-    # Créer une nouvelle couche pour le chemin
-    fields = QgsFields()
-    fields.append(QgsField("id", QVariant.Int))
-    
-    # Créer le fichier de sortie
-    writer = QgsVectorFileWriter(output_file, "UTF-8", fields, 
-                                QgsWkbTypes.LineString, 
-                                QgsCoordinateReferenceSystem("EPSG:4326"), 
-                                "GPKG")
-    
-    if writer.hasError() != QgsVectorFileWriter.NoError:
+    try:
+        # Créer une nouvelle couche pour le chemin
+        fields = QgsFields()
+        fields.append(QgsField("id", QVariant.Int))
+        
+        # Créer le fichier de sortie
+        writer = QgsVectorFileWriter(output_file, "UTF-8", fields, 
+                                    QgsWkbTypes.LineString, 
+                                    QgsCoordinateReferenceSystem("EPSG:4326"), 
+                                    "GPKG")
+        
+        if writer.hasError() != QgsVectorFileWriter.NoError:
+            return False
+        
+        # Créer la géométrie du chemin
+        points = []
+        for vertex_id in path_vertices:
+            vertex_point = graph_data['graph'].vertex(vertex_id).point()
+            points.append(QgsPointXY(vertex_point.x(), vertex_point.y()))
+        
+        if len(points) > 1:
+            line_geometry = QgsGeometry.fromPolylineXY(points)
+            feature = QgsFeature()
+            feature.setGeometry(line_geometry)
+            feature.setAttributes([1])
+            writer.addFeature(feature)
+        
+        del writer
+        return True
+        
+    except Exception as e:
+        print(f"Erreur lors de la sauvegarde: {e}")
         return False
-    
-    # Créer la géométrie du chemin
-    points = []
-    for vertex_id in path_vertices:
-        vertex_point = graph_data['graph'].vertex(vertex_id).point()
-        points.append(QgsPointXY(vertex_point.x(), vertex_point.y()))
-    
-    if len(points) > 1:
-        line_geometry = QgsGeometry.fromPolylineXY(points)
-        feature = QgsFeature()
-        feature.setGeometry(line_geometry)
-        feature.setAttributes([1])
-        writer.addFeature(feature)
-    
-    del writer
-    return True
 
 # Debugging the changing in field type in some step before 
 def create_minitrips (OSM4rout_csv,OSM4routing_csv, lines_trips_csv ):
