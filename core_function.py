@@ -93,8 +93,8 @@ def build_network_graph(network_file, strategy=0, direction_field='', speed_fiel
     
     # Configurer la stratégie
     if strategy == 1:  # Speed strategy
-        # QgsNetworkSpeedStrategy prend seulement la vitesse par défaut
-        director.addStrategy(QgsNetworkSpeedStrategy(default_speed))
+        # QgsNetworkSpeedStrategy ne prend aucun argument dans cette version de QGIS
+        director.addStrategy(QgsNetworkSpeedStrategy())
     else:  # Distance strategy
         director.addStrategy(QgsNetworkDistanceStrategy())
     
