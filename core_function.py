@@ -13,7 +13,8 @@ from qgis.core import (QgsVectorLayer,
                         QgsPointXY,
                         QgsFields,
                         QgsGeometry,
-                        QgsFeature
+                        QgsFeature,
+                        QgsWkbTypes
 
 )
 
@@ -29,6 +30,8 @@ from qgis.PyQt.QtCore import QVariant
 import re
 import os
 import time
+import pickle
+import hashlib
 
 def if_remove(file_path):
     if os.path.exists(file_path):
@@ -46,6 +49,139 @@ def save_and_stop_editing_layers(layers):
                     print(f"Failed to rollback changes for layer: {layer.name()}")
         else:
             print(f"Layer '{layer.name()}' is not in editing mode.")
+
+# Cache pour les graphes réseau
+_graph_cache = {}
+
+def clear_graph_cache():
+    """Nettoie le cache des graphes réseau"""
+    global _graph_cache
+    _graph_cache.clear()
+    print("Graph cache cleared")
+
+def get_cache_stats():
+    """Retourne les statistiques du cache"""
+    global _graph_cache
+    return {
+        'cached_graphs': len(_graph_cache),
+        'cache_keys': list(_graph_cache.keys())
+    }
+
+def get_graph_cache_key(network_file, strategy, direction_field, speed_field, default_speed):
+    """Génère une clé unique pour le cache basée sur les paramètres du réseau"""
+    cache_data = f"{network_file}_{strategy}_{direction_field}_{speed_field}_{default_speed}"
+    return hashlib.md5(cache_data.encode()).hexdigest()
+
+def build_network_graph(network_file, strategy=0, direction_field='', speed_field='', default_speed=50):
+    """Construit et met en cache le graphe réseau"""
+    cache_key = get_graph_cache_key(network_file, strategy, direction_field, speed_field, default_speed)
+    
+    if cache_key in _graph_cache:
+        print(f"Using cached graph for {network_file}")
+        return _graph_cache[cache_key]
+    
+    print(f"Building network graph for {network_file}")
+    
+    # Charger la couche réseau
+    network_layer = QgsVectorLayer(network_file, "network", "ogr")
+    if not network_layer.isValid():
+        raise Exception(f"Invalid network layer: {network_file}")
+    
+    # Créer le directeur de réseau
+    director = QgsVectorLayerDirector(network_layer, -1, '', '', '', 3)
+    
+    # Configurer la stratégie
+    if strategy == 1:  # Speed strategy
+        if speed_field:
+            director.addStrategy(QgsNetworkSpeedStrategy(speed_field, default_speed))
+        else:
+            director.addStrategy(QgsNetworkSpeedStrategy(default_speed))
+    else:  # Distance strategy
+        director.addStrategy(QgsNetworkDistanceStrategy())
+    
+    # Créer le constructeur de graphe
+    builder = QgsGraphBuilder(network_layer.crs())
+    
+    # Construire le graphe
+    director.makeGraph(builder, [])
+    graph = builder.graph()
+    
+    # Mettre en cache
+    _graph_cache[cache_key] = {
+        'director': director,
+        'graph': graph,
+        'network_layer': network_layer
+    }
+    
+    print(f"Graph cached for {network_file}")
+    return _graph_cache[cache_key]
+
+def find_shortest_path_cached(graph_data, start_point, end_point):
+    """Trouve le plus court chemin en utilisant le graphe en cache"""
+    director = graph_data['director']
+    graph = graph_data['graph']
+    
+    # Convertir les coordonnées en points QGIS
+    start_coords = start_point.split(',')
+    end_coords = end_point.split(',')
+    
+    start_vertex = director.findVertex(QgsPointXY(float(start_coords[0]), float(start_coords[1])))
+    end_vertex = director.findVertex(QgsPointXY(float(end_coords[0]), float(end_coords[1])))
+    
+    if start_vertex == -1 or end_vertex == -1:
+        return None
+    
+    # Calculer le plus court chemin
+    tree, cost = QgsGraphAnalyzer.dijkstra(graph, start_vertex, 0)
+    
+    if tree[end_vertex] == -1:
+        return None
+    
+    # Reconstituer le chemin
+    path = []
+    current_vertex = end_vertex
+    while current_vertex != start_vertex:
+        path.append(current_vertex)
+        current_vertex = tree[current_vertex]
+    path.append(start_vertex)
+    path.reverse()
+    
+    return path
+
+def save_graph_to_file(graph_data, output_file):
+    """Sauvegarde le chemin calculé dans un fichier GPKG"""
+    path_vertices = graph_data.get('path_vertices', [])
+    if not path_vertices:
+        return False
+    
+    # Créer une nouvelle couche pour le chemin
+    fields = QgsFields()
+    fields.append(QgsField("id", QVariant.Int))
+    
+    # Créer le fichier de sortie
+    writer = QgsVectorFileWriter(output_file, "UTF-8", fields, 
+                                QgsWkbTypes.LineString, 
+                                QgsCoordinateReferenceSystem("EPSG:4326"), 
+                                "GPKG")
+    
+    if writer.hasError() != QgsVectorFileWriter.NoError:
+        return False
+    
+    # Créer la géométrie du chemin
+    points = []
+    for vertex_id in path_vertices:
+        vertex_point = graph_data['graph'].vertex(vertex_id).point()
+        points.append(QgsPointXY(vertex_point.x(), vertex_point.y()))
+    
+    if len(points) > 1:
+        line_geometry = QgsGeometry.fromPolylineXY(points)
+        feature = QgsFeature()
+        feature.setGeometry(line_geometry)
+        feature.setAttributes([1])
+        writer.addFeature(feature)
+    
+    del writer
+    return True
 
 # Debugging the changing in field type in some step before 
 def create_minitrips (OSM4rout_csv,OSM4routing_csv, lines_trips_csv ):
@@ -116,7 +252,27 @@ def mini_routing(OSM4routing_csv, full_roads_gpgk, tram_rails_gpgk, OSM_Regtrain
     unique_mini_tr_name = 'uq_mini_trips'
     unique_mini_tr_csv = os.path.join(tempfld,str(unique_mini_tr_name)+'.csv')
 
-    # ls_minitrips = [str(tempfld)+'/'+str(file) for file in ls_mini_tr_gpkg]
+    # Construire les graphes réseau en cache une seule fois
+    print("Building network graphs...")
+    graphs = {}
+    
+    # Graphe pour les routes principales
+    graphs['roads'] = build_network_graph(full_roads_gpgk, strategy=1, 
+                                         direction_field='oneway_routing', 
+                                         speed_field='maxspeed_routing', 
+                                         default_speed=50)
+    
+    # Graphe pour les rails de tram
+    graphs['tram'] = build_network_graph(tram_rails_gpgk, strategy=0, default_speed=50)
+    
+    # Graphe pour les trains régionaux
+    graphs['train'] = build_network_graph(OSM_Regtrain_gpkg, strategy=0, default_speed=50)
+    
+    # Graphe pour les funiculaires
+    graphs['funicular'] = build_network_graph(OSM_funicular_gpkg, strategy=0, default_speed=50)
+    
+    print("Network graphs built and cached!")
+    print("Performance optimization: Using cached graphs instead of rebuilding for each mini-trip")
 
     if not mini_trips.empty:
         mini_trips = mini_trips.reset_index(drop=True)
@@ -131,8 +287,8 @@ def mini_routing(OSM4routing_csv, full_roads_gpgk, tram_rails_gpgk, OSM_Regtrain
         else:
             unique_mini_tr = pd.DataFrame()
         while i_row < len(mini_trips):
-            start_point =  str(mini_trips.loc[i_row,'lon'])+','+str(mini_trips.loc[i_row,'lat'])+' [EPSG:4326]'
-            end_point =  str(mini_trips.loc[i_row,'next_lon'])+','+str(mini_trips.loc[i_row,'next_lat'])+' [EPSG:4326]'
+            start_point =  str(mini_trips.loc[i_row,'lon'])+','+str(mini_trips.loc[i_row,'lat'])
+            end_point =  str(mini_trips.loc[i_row,'next_lon'])+','+str(mini_trips.loc[i_row,'next_lat'])
             if start_point == end_point:
                 i_row += 1
                 continue
@@ -161,69 +317,43 @@ def mini_routing(OSM4routing_csv, full_roads_gpgk, tram_rails_gpgk, OSM_Regtrain
                     unique_mini_tr.loc[i_row_uq_tr,'mini_tr_path'] = mini_trip_gpkg
                     unique_mini_tr.loc[i_row_uq_tr,'IDstr_end_pt'] = IDstr_end_pt
                     try:
+                        # Utiliser le graphe en cache au lieu de l'algorithme QGIS
+                        graph_key = None
                         if 'Tram' in str(mini_trips.loc[i_row,'line_name']):
-                            if_remove(mini_trip_gpkg)
-                            params = {'INPUT':tram_rails_gpgk,
-                                    'STRATEGY':0,
-                                    'DIRECTION_FIELD':'',
-                                    'VALUE_FORWARD':'',
-                                    'VALUE_BACKWARD':'',
-                                    'VALUE_BOTH':'','DEFAULT_DIRECTION':2,
-                                    'SPEED_FIELD':'',
-                                    'DEFAULT_SPEED':50,
-                                    'TOLERANCE':0,
-                                    'START_POINT':start_point,
-                                    'END_POINT':end_point,
-                                    'OUTPUT':mini_trip_gpkg}
-                            processing.run("native:shortestpathpointtopoint", params)
+                            graph_key = 'tram'
                         elif 'RegRailServ' in str(mini_trips.loc[i_row,'line_name']):
-                            if_remove(mini_trip_gpkg)
-                            params = {'INPUT':OSM_Regtrain_gpkg,
-                                    'STRATEGY':0,
-                                    'DIRECTION_FIELD':'',
-                                    'VALUE_FORWARD':'',
-                                    'VALUE_BACKWARD':'',
-                                    'VALUE_BOTH':'','DEFAULT_DIRECTION':2,
-                                    'SPEED_FIELD':'',
-                                    'DEFAULT_SPEED':50,
-                                    'TOLERANCE':0,
-                                    'START_POINT':start_point,
-                                    'END_POINT':end_point,
-                                    'OUTPUT':mini_trip_gpkg}
-                            processing.run("native:shortestpathpointtopoint", params)
+                            graph_key = 'train'
                         elif 'Funicular' in str(mini_trips.loc[i_row,'line_name']):
-                            if_remove(mini_trip_gpkg)
-                            params = {'INPUT':OSM_funicular_gpkg,
-                                    'STRATEGY':0,
-                                    'DIRECTION_FIELD':'',
-                                    'VALUE_FORWARD':'',
-                                    'VALUE_BACKWARD':'',
-                                    'VALUE_BOTH':'','DEFAULT_DIRECTION':2,
-                                    'SPEED_FIELD':'',
-                                    'DEFAULT_SPEED':50,
-                                    'TOLERANCE':0,
-                                    'START_POINT':start_point,
-                                    'END_POINT':end_point,
-                                    'OUTPUT':mini_trip_gpkg}
-                            processing.run("native:shortestpathpointtopoint", params)
+                            graph_key = 'funicular'
                         else:
+                            graph_key = 'roads'
+                        
+                        # Calculer le chemin avec le graphe en cache
+                        path_vertices = find_shortest_path_cached(graphs[graph_key], start_point, end_point)
+                        
+                        if path_vertices:
+                            # Sauvegarder le chemin dans un fichier GPKG
                             if_remove(mini_trip_gpkg)
-                            params = {'INPUT':full_roads_gpgk,
-                                    'STRATEGY':1,
-                                    'DIRECTION_FIELD':'oneway_routing',
-                                    'VALUE_FORWARD':'forward',
-                                    'VALUE_BACKWARD':'backward',
-                                    'VALUE_BOTH':'','DEFAULT_DIRECTION':2,
-                                    'SPEED_FIELD':'maxspeed_routing',
-                                    'DEFAULT_SPEED':50,
-                                    'TOLERANCE':0,
-                                    'START_POINT':start_point,
-                                    'END_POINT':end_point,
-                                    'OUTPUT':mini_trip_gpkg}
-                            processing.run("native:shortestpathpointtopoint", params)
-                    except Exception:
-                        os.remove(mini_trip_gpkg)
-                        print('something wrong with '+ str(mini_trips.loc[i_row,'mini_tr_pos']))
+                            graph_data = graphs[graph_key].copy()
+                            graph_data['path_vertices'] = path_vertices
+                            save_graph_to_file(graph_data, mini_trip_gpkg)
+                        else:
+                            print(f'No path found for {mini_trips.loc[i_row,"mini_tr_pos"]}')
+                            # Créer un fichier vide si aucun chemin n'est trouvé
+                            if_remove(mini_trip_gpkg)
+                            # Créer un fichier GPKG vide
+                            fields = QgsFields()
+                            fields.append(QgsField("id", QVariant.Int))
+                            writer = QgsVectorFileWriter(mini_trip_gpkg, "UTF-8", fields, 
+                                                        QgsWkbTypes.LineString, 
+                                                        QgsCoordinateReferenceSystem("EPSG:4326"), 
+                                                        "GPKG")
+                            del writer
+                            
+                    except Exception as e:
+                        if os.path.exists(mini_trip_gpkg):
+                            os.remove(mini_trip_gpkg)
+                        print(f'something wrong with {mini_trips.loc[i_row,"mini_tr_pos"]}: {str(e)}')
                         break
                 # ls_minitrips.append(mini_trip_gpkg) 
             print('There are '+str(tot)+' mini-trips to calculate')
