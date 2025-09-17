@@ -1,0 +1,12 @@
+__pycache__/
+.DS_Store
+.idea/
+.vscode/
+.pytest_cache/
+.coverage
+.coverage.*
+.coverage.*.*
+.coverage.*.*.*
+.coverage.*.*.*.*
+.coverage.*.*.*.*.*
+venv/
