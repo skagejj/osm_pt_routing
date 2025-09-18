@@ -10,7 +10,7 @@ This QGIS plugin enables advanced routing analysis for public transport systems 
 - **Layer Generation**: Produces layers optimized for routing and visualization in QGIS.
 
 ## Teasing
-Watch the teasing for these plugin [here](https://drive.google.com/file/d/1oaudC09QLDbCJ0qPIztnBvTf7KJRwrF7/view?usp=sharing).
+Watch the teasing for these plugin [here](https://drive.google.com/file/d/1LilcjYFtBTateYkhFQe7UMBH2HwEt9Wo/view?usp=drive_link).
 
 ## FlowRide Plugin Series
 This plugin is the third in a series of four plugins for public transport analysis:
@@ -26,7 +26,7 @@ This plugin is the third in a series of four plugins for public transport analys
 3. **Visualize Results**: Display optimized routes and layers in QGIS for further analysis.
 
 ## Video Tutorial
-Watch the video tutorial for this plugin [here](https://drive.google.com/file/d/1-LpZNxSGjI7SOaZ7Hn3MHk-4omOrxm9-/view?usp=sharing).
+Watch the video tutorial for this plugin [here](https://drive.google.com/file/d/1LjzkYpu6Bfrb2KlrN3byfVHU8qHSqKoH/view?usp=sharing).
 
 ## Installation
 1. Clone or download the plugin repository.
